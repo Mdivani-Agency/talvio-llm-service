@@ -1,11 +1,10 @@
 ---
-description: Plan work in Notion first, then create or update Linear issues — do not implement unless asked
-alwaysApply: true
+description: Publish a Notion plan first, then create or update Linear issues — do not implement unless asked
 ---
 
 # Plan
 
-Research requirements and publish an actionable technical plan. Write the plan in Notion first, then create or update Linear issues. Do not implement code or deploy changes unless explicitly asked. For reviewing a published plan or issue, follow `review-plan.mdc`.
+Research requirements and publish an actionable technical plan. Write the plan in Notion first, then create or update Linear issues. Do not implement code or deploy changes unless explicitly asked. For reviewing a published plan or issue, use `/review-plan`. For implementing an assigned ticket, use `/start-issue`.
 
 ## Before planning
 
@@ -70,7 +69,7 @@ Example title: `LLM 3/14: provision Bedrock queues and private artifacts`
 
 - Break work into sub-issues that can each produce a coherent, review-ready change.
 - Specify the recommended implementation order.
-- Record that implementation agents must complete one sub-issue, submit it for review, and stop. Follow `start-issue.mdc` for that work.
+- Record that implementation agents must complete one sub-issue, submit it for review, and stop. Use `/start-issue` for that work.
 - Approval or merge alone does not authorize starting the next sub-issue; the user must explicitly request continuation.
 - This restriction does not prevent creating the full proposed breakdown in one planning task.
 
