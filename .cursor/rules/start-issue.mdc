@@ -1,0 +1,91 @@
+---
+description: Start Linear tickets — read context, implement, validate, and hand off a review-ready PR
+alwaysApply: true
+---
+
+# Start issue
+
+Carry each Linear ticket through implementation, validation, push, and a review-ready pull request.
+
+## Before starting
+
+1. Read the Linear ticket, its parent epic, acceptance criteria, dependencies, and linked documents.
+2. Find the Notion page titled “Talvio”. Read its overview and the child pages relevant to the task’s domain.
+3. Read the repository instructions and inspect the current implementation.
+4. Resolve differences between the ticket, documentation, and code. Do not assume older documentation describes current behavior. Ask only when a material ambiguity cannot be resolved from available evidence.
+5. Move the ticket to **In Progress** when implementation begins. Do not change **Done**, **Canceled**, or **Duplicate** tickets without an explicit request.
+
+## Traceability
+
+- Include the Linear identifier, such as `MDI-211`, in the branch name and every commit message whenever you control them.
+- Examples:
+  - Branch: `mdi-211-llm-operation-contracts`
+  - Commit: `MDI-211: add versioned LLM operation contracts`
+- If a platform requires a branch prefix or suffix, keep the identifier in the descriptive segment: `cursor/mdi-211-llm-operation-contracts-5d6d`.
+- When Conventional Commits are also required, keep that subject format and include the identifier as a prefix or a `Refs: MDI-211` footer.
+- Include the identifier in the pull request title and link the ticket in its description.
+- If no ticket was supplied, search Linear for a match. Do not invent an identifier or attach unrelated work to a ticket.
+
+## Implementation and validation
+
+- Implement the ticket’s scope and acceptance criteria while preserving existing behavior outside that scope.
+- Run relevant tests and required repository checks.
+- Document material limitations, unresolved dependencies, and any acceptance criteria that remain unmet.
+- Do not claim a check passed unless you ran it and observed success.
+
+## Linear progress
+
+Team statuses: Backlog, Todo, In Progress, In Review, Done, Canceled, Duplicate. There is no Blocked status.
+
+- Keep the ticket status aligned with actual progress.
+- Add concise updates at meaningful milestones, when scope changes, or when a blocker appears. Avoid comments for every minor action.
+- If blocked, describe the blocker, its impact, and the action needed. Stay **In Progress** and record the blocker.
+- After pushing the changes and preparing a review-ready pull request, move the ticket to **In Review** and add the PR link, validation results, and any limitations.
+- Do not mark the ticket **Done** merely because code was written or pushed. Wait until the PR is merged and the acceptance criteria are satisfied, unless the team’s completion policy says otherwise.
+- When a status is unavailable, use the closest existing team status. Do not create a new one.
+
+## Notion documentation
+
+After code is pushed and ready for review, check whether the relevant Talvio documentation is missing, stale, or affected by the change.
+
+- Update an existing domain page when possible. Create a new child page under Talvio only when the topic needs its own scope.
+- Document the resulting behavior and architecture, not a chronological account of implementation.
+- Clearly distinguish proposed designs, implemented changes awaiting merge, and deployed behavior.
+- Link the Linear ticket and pull request. For documentation written before merge, identify it as “Implemented in PR — pending merge”.
+- Preserve unrelated content and established decisions. Explain material changes to previous decisions.
+- If documentation is already accurate and the change needs no update, say so in the review handoff.
+
+## Documentation organization
+
+- Use the Talvio parent page as a concise index.
+- Organize child pages by domain, such as:
+  - Account and onboarding
+  - Resume editing and PDF generation
+  - LLM orchestration
+  - Data and authentication
+  - Media and email
+  - Infrastructure and deployment
+- Give each page a clear purpose and boundary. Split large pages into focused subpages when needed.
+- Use consistent sections where relevant: purpose, current behavior, architecture, contracts, operational guidance, limitations, and related links.
+- Maintain one authoritative location for each topic; link to it instead of duplicating content.
+- Keep historical decisions clearly labeled and separate from current instructions.
+
+## Review handoff
+
+Before handing the task back:
+
+- Confirm the code is pushed and the PR accurately describes the final change.
+- Confirm Linear has the correct status and PR link.
+- Confirm affected Notion documentation is updated or explain why no update was needed.
+- Summarize the change, validation, documentation links, and remaining limitations.
+
+If Linear or Notion is unavailable, continue work that does not depend on it. Report the access problem and the exact status or documentation updates still outstanding. Never claim an external update succeeded without verifying it.
+
+## Parent issues and sub-issues
+
+- When assigned a parent issue or epic, inspect its sub-issues and dependencies, then implement only one sub-issue at a time.
+- Start with the first unblocked sub-issue in the intended order, unless the user specifies another.
+- Complete that sub-issue through validation, push, a review-ready PR, and the required Linear/Notion updates.
+- Then stop and wait for review. Do not begin another sub-issue, even if it is unblocked.
+- Continue to the next sub-issue only when the user explicitly asks. Approval or merge of the current PR alone is not authorization to continue.
+- Keep the parent issue open until all sub-issues satisfy the team’s completion policy.
