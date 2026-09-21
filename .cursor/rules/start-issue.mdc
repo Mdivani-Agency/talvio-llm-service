@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Start issue
 
-Carry each Linear ticket through implementation, validation, push, and a review-ready pull request. For research and plan publication without implementation, follow `plan.mdc`.
+Carry each Linear ticket through implementation, validation, push, and a review-ready pull request. For research and plan publication without implementation, follow `plan.mdc`. For reviewing a plan or issue without implementing, follow `review-plan.mdc`.
 
 ## Before starting
 

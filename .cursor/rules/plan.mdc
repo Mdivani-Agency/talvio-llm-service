@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Plan
 
-Research requirements and publish an actionable technical plan. Write the plan in Notion first, then create or update Linear issues. Do not implement code or deploy changes unless explicitly asked.
+Research requirements and publish an actionable technical plan. Write the plan in Notion first, then create or update Linear issues. Do not implement code or deploy changes unless explicitly asked. For reviewing a published plan or issue, follow `review-plan.mdc`.
 
 ## Before planning
 
