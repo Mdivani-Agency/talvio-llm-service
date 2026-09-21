@@ -1,11 +1,10 @@
 ---
-description: Start Linear tickets — read context, implement, validate, and hand off a review-ready PR
-alwaysApply: true
+description: Implement a Linear ticket through validation, push, and a review-ready PR
 ---
 
 # Start issue
 
-Carry each Linear ticket through implementation, validation, push, and a review-ready pull request. For research and plan publication without implementation, follow `plan.mdc`. For reviewing a plan or issue without implementing, follow `review-plan.mdc`.
+Carry each Linear ticket through implementation, validation, push, and a review-ready pull request. For research and plan publication without implementation, use `/plan`. For reviewing a plan or issue without implementing, use `/review-plan`.
 
 ## Before starting
 

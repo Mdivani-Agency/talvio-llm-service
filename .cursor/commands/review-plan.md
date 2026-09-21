@@ -1,13 +1,12 @@
 ---
 description: Review a plan or Linear issue for correctness and readiness — do not implement code
-alwaysApply: true
 ---
 
 # Review plan
 
 Review the supplied plan, issue, or epic for correctness, completeness, and implementation readiness. Validate it against current evidence and suggest concrete improvements. Do not implement code.
 
-Planning without implementation follows `plan.mdc`. Ticket implementation follows `start-issue.mdc`.
+Planning without implementation uses `/plan`. Ticket implementation uses `/start-issue`.
 
 ## Gather context
 
