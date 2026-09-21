@@ -1,10 +1,6 @@
----
-description: Publish a Notion plan first, then create or update Linear issues — do not implement unless asked
----
-
 # Plan
 
-Research requirements and publish an actionable technical plan. Write the plan in Notion first, then create or update Linear issues. Do not implement code or deploy changes unless explicitly asked. For reviewing a published plan or issue, use `/review-plan`. For implementing an assigned ticket, use `/start-issue`.
+Research requirements and publish an actionable technical plan. Write the plan in Notion first, then create or update Linear issues. Do not implement code or deploy changes unless explicitly asked. For reviewing a published plan or issue, use `/review-plan` (or read `.cursor/commands/review-plan.md`). For implementing an assigned ticket, use `/start-issue` (or read `.cursor/commands/start-issue.md`).
 
 ## Before planning
 
@@ -42,19 +38,18 @@ Do not label a plan **Approved**, **Implemented**, or **Deployed** without evide
 
 ## Documentation organization
 
-- Keep the Talvio parent page as a concise index.
-- Organize plans by domain, such as onboarding, resume editing, LLM orchestration, data/authentication, or infrastructure.
-- Maintain one authoritative page per topic. Link related pages instead of duplicating their content.
-- Use clear sections appropriate to the work: problem and goals; current behavior and evidence; proposed behavior and architecture; contracts and data ownership; failure and recovery; delivery plan and dependencies; acceptance criteria and validation; risks, open decisions, and references.
-- Preserve unrelated content and established decisions. Explain proposed changes to earlier decisions.
-- Separate historical designs from current guidance.
+Use the authoritative domain list and page-structure rules in `.cursor/commands/start-issue.md` (Documentation organization). Do not maintain a second domain list here.
+
+When writing a plan, use sections appropriate to the work: problem and goals; current behavior and evidence; proposed behavior and architecture; contracts and data ownership; failure and recovery; delivery plan and dependencies; acceptance criteria and validation; risks, open decisions, and references.
+
+Preserve unrelated content and established decisions. Explain proposed changes to earlier decisions. Separate historical designs from current guidance.
 
 ## Linear issues
 
 After the Notion plan is saved:
 
 - Create issues from the plan, or update matching existing issues rather than creating duplicates.
-- Use the Talvio project (id `1483a14a626b`) and the existing MDI team.
+- Use the Talvio project and MDI team. When `.cursor/rules/linear.mdc` is present, follow the project id and conventions there instead of hard-coding them.
 - Link the Notion plan in the parent issue and every implementation sub-issue.
 - For multi-stage work, create a parent epic with independently reviewable sub-issues.
 - Give each issue a concrete outcome-oriented title, the problem and intended behavior, explicit scope and exclusions, relevant interfaces and constraints, testable acceptance criteria, validation expectations, and dependencies.
@@ -69,7 +64,7 @@ Example title: `LLM 3/14: provision Bedrock queues and private artifacts`
 
 - Break work into sub-issues that can each produce a coherent, review-ready change.
 - Specify the recommended implementation order.
-- Record that implementation agents must complete one sub-issue, submit it for review, and stop. Use `/start-issue` for that work.
+- Record that implementation agents must complete one sub-issue, submit it for review, and stop. Use `/start-issue` (or read `.cursor/commands/start-issue.md`) for that work.
 - Approval or merge alone does not authorize starting the next sub-issue; the user must explicitly request continuation.
 - This restriction does not prevent creating the full proposed breakdown in one planning task.
 

@@ -1,10 +1,6 @@
----
-description: Implement a Linear ticket through validation, push, and a review-ready PR
----
-
 # Start issue
 
-Carry each Linear ticket through implementation, validation, push, and a review-ready pull request. For research and plan publication without implementation, use `/plan`. For reviewing a plan or issue without implementing, use `/review-plan`.
+Carry each Linear ticket through implementation, validation, push, and a review-ready pull request. For research and plan publication without implementation, use `/plan` (or read `.cursor/commands/plan.md`). For reviewing a plan or issue without implementing, use `/review-plan` (or read `.cursor/commands/review-plan.md`).
 
 ## Before starting
 
@@ -19,9 +15,10 @@ Carry each Linear ticket through implementation, validation, push, and a review-
 - Include the Linear identifier, such as `MDI-211`, in the branch name and every commit message whenever you control them.
 - Examples:
   - Branch: `mdi-211-llm-operation-contracts`
-  - Commit: `MDI-211: add versioned LLM operation contracts`
+  - Commit subject: `feat(llm): add versioned operation contracts`
+  - Commit footer: `Refs: MDI-211`
 - If a platform requires a branch prefix or suffix, keep the identifier in the descriptive segment: `cursor/mdi-211-llm-operation-contracts-5d6d`.
-- When Conventional Commits are also required, keep that subject format and include the identifier as a prefix or a `Refs: MDI-211` footer.
+- Follow Conventional Commits (`<type>(<scope>): <description>`). Put the Linear identifier only in a `Refs:` footer, never in the subject.
 - Include the identifier in the pull request title and link the ticket in its description.
 - If no ticket was supplied, search Linear for a match. Do not invent an identifier or attach unrelated work to a ticket.
 
@@ -40,7 +37,7 @@ Team statuses: Backlog, Todo, In Progress, In Review, Done, Canceled, Duplicate.
 - Add concise updates at meaningful milestones, when scope changes, or when a blocker appears. Avoid comments for every minor action.
 - If blocked, describe the blocker, its impact, and the action needed. Stay **In Progress** and record the blocker.
 - After pushing the changes and preparing a review-ready pull request, move the ticket to **In Review** and add the PR link, validation results, and any limitations.
-- Do not mark the ticket **Done** merely because code was written or pushed. Wait until the PR is merged and the acceptance criteria are satisfied, unless the team’s completion policy says otherwise.
+- Do not mark the ticket **Done** merely because code was written or pushed. Mark it **Done** only after the PR is merged to the repository default branch and the acceptance criteria are satisfied.
 - When a status is unavailable, use the closest existing team status. Do not create a new one.
 
 ## Notion documentation
@@ -56,8 +53,10 @@ After code is pushed and ready for review, check whether the relevant Talvio doc
 
 ## Documentation organization
 
+This is the authoritative domain list for Talvio Notion pages. Other commands should link here instead of restating it.
+
 - Use the Talvio parent page as a concise index.
-- Organize child pages by domain, such as:
+- Organize child pages by domain:
   - Account and onboarding
   - Resume editing and PDF generation
   - LLM orchestration
@@ -87,4 +86,4 @@ If Linear or Notion is unavailable, continue work that does not depend on it. Re
 - Complete that sub-issue through validation, push, a review-ready PR, and the required Linear/Notion updates.
 - Then stop and wait for review. Do not begin another sub-issue, even if it is unblocked.
 - Continue to the next sub-issue only when the user explicitly asks. Approval or merge of the current PR alone is not authorization to continue.
-- Keep the parent issue open until all sub-issues satisfy the team’s completion policy.
+- Keep the parent issue open until all sub-issues are **Done** (PR merged to the default branch and acceptance criteria satisfied).
