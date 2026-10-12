@@ -117,12 +117,18 @@ export const addedEntitySchema = z.discriminatedUnion('section', [
   z.strictObject({ section: z.literal('links'), entity: linkItemSchema }),
 ]);
 
-export const entityAdditionSchema = z.strictObject({
-  type: z.literal('add_entity'),
-  changeKind: z.literal('factual_addition'),
-  addition: addedEntitySchema,
-  ...changeBase,
-});
+/** Adding an entity always needs the user's confirmation of at least one claim. */
+export const entityAdditionSchema = z
+  .strictObject({
+    type: z.literal('add_entity'),
+    changeKind: z.literal('factual_addition'),
+    addition: addedEntitySchema,
+    ...changeBase,
+  })
+  .refine((change) => change.confirmation.required && change.confirmation.claims.length > 0, {
+    message: 'an entity addition must require confirmation of at least one claim',
+    path: ['confirmation'],
+  });
 
 export const proposedChangeSchema = z.discriminatedUnion('type', [
   fieldChangeSchema,
