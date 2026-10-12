@@ -34,8 +34,13 @@ export const coverageStatusEnum = z.enum(['supported', 'partial', 'missing']);
 export const requirementCoverageSchema = z.strictObject({
   requirementId: stableIdSchema,
   status: coverageStatusEnum,
-  /** Candidate-side evidence only (profile, resume, document or answer). */
-  evidence: z.array(evidenceRefSchema).max(10),
+  /** Candidate-side evidence only: a job description span never supports a requirement. */
+  evidence: z
+    .array(evidenceRefSchema)
+    .max(10)
+    .refine((refs) => refs.every((ref) => ref.sourceKind !== 'job_description'), {
+      message: 'coverage evidence must come from the candidate, not the job description',
+    }),
   note: z.string().max(500).nullable(),
 });
 

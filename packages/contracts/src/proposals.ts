@@ -17,6 +17,7 @@ import {
   duplicateIds,
   longTextSchema,
   sha256Schema,
+  shortTextSchema,
   stableIdSchema,
   uuidSchema,
 } from './primitives';
@@ -100,15 +101,38 @@ const changeBase = {
 };
 
 /** Rewrites one field. `rewrite` keeps the facts; `factual_addition` adds a fact from answers. */
-export const fieldChangeSchema = z.strictObject({
-  type: z.literal('field'),
-  changeKind: z.enum(['rewrite', 'factual_addition']),
-  target: changeTargetSchema,
-  /** Precondition: apply fails if the target no longer holds this value. */
-  originalValue: fieldValueSchema,
-  proposedValue: fieldValueSchema,
-  ...changeBase,
-});
+/** The value shape each targetable field holds. */
+const FIELD_VALUE_SCHEMAS: Record<string, z.ZodType> = {
+  role: shortTextSchema.nullable(),
+  tagline: longTextSchema.nullable(),
+  description: contentDocSchema.nullable(),
+  achievements: z.array(longTextSchema).max(LIMITS.bulletsPerEntry),
+  responsibilities: z.array(longTextSchema).max(LIMITS.bulletsPerEntry),
+  keyContributions: z.array(longTextSchema).max(LIMITS.bulletsPerEntry),
+};
+
+export const fieldChangeSchema = z
+  .strictObject({
+    type: z.literal('field'),
+    changeKind: z.enum(['rewrite', 'factual_addition']),
+    target: changeTargetSchema,
+    /** Precondition: apply fails if the target no longer holds this value. */
+    originalValue: fieldValueSchema,
+    proposedValue: fieldValueSchema,
+    ...changeBase,
+  })
+  .superRefine((change, ctx) => {
+    const schema = FIELD_VALUE_SCHEMAS[change.target.field];
+    for (const key of ['originalValue', 'proposedValue'] as const) {
+      if (schema && !schema.safeParse(change[key]).success) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'value does not fit the target field',
+          path: [key],
+        });
+      }
+    }
+  });
 
 export const addedEntitySchema = z.discriminatedUnion('section', [
   z.strictObject({ section: z.literal('skills'), entity: namedItemSchema }),

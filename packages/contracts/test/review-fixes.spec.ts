@@ -128,3 +128,50 @@ describe('career entity ids', () => {
     expect(careerDocumentSchema.safeParse(acrossSections).success).toBe(false);
   });
 });
+
+describe('second review round', () => {
+  it('binds a proposal to the envelope source revision', () => {
+    const fixture = clone(loadFixture('valid', 'improve-resume-result-draft-source').payload) as {
+      sourceRevision: string;
+    };
+    expect(resultEnvelopeSchemas.improve_resume.safeParse(fixture).success).toBe(true);
+    fixture.sourceRevision = '2026-10-05T00:00:00.000Z';
+    expect(resultEnvelopeSchemas.improve_resume.safeParse(fixture).success).toBe(false);
+  });
+
+  it('never counts job description text as candidate coverage', () => {
+    const fixture = clone(loadFixture('valid', 'analyze-result-job-requirements').payload) as {
+      result: {
+        coverage: Array<{ evidence: unknown[] }>;
+        requirements: Array<{ evidence: unknown[] }>;
+      };
+    };
+    fixture.result.coverage[0]!.evidence = fixture.result.requirements[0]!.evidence;
+    expect(resultEnvelopeSchemas.analyze_resume.safeParse(fixture).success).toBe(false);
+  });
+
+  it('checks change values against the target field', () => {
+    const envelope = loadFixture('valid', 'improve-resume-result-generated-source').payload as {
+      result: { proposal: { changes: Array<Record<string, unknown>> } };
+    };
+    const [tagline, achievements] = envelope.result.proposal.changes;
+    expect(proposedChangeSchema.safeParse(tagline).success).toBe(true);
+    const docAsRole = {
+      ...tagline,
+      target: { section: 'person', entityId: null, field: 'role' },
+      proposedValue: { type: 'doc', blocks: [] },
+    };
+    expect(proposedChangeSchema.safeParse(docAsRole).success).toBe(false);
+    expect(
+      proposedChangeSchema.safeParse({ ...achievements, proposedValue: 'one string' }).success,
+    ).toBe(false);
+  });
+
+  it('requires the composed document in tailoring results', () => {
+    const fixture = clone(loadFixture('valid', 'tailor-result-job-specific').payload) as {
+      result: { proposal: { document: unknown } };
+    };
+    fixture.result.proposal.document = null;
+    expect(resultEnvelopeSchemas.tailor_resume.safeParse(fixture).success).toBe(false);
+  });
+});

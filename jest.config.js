@@ -1,17 +1,16 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  coverageDirectory: 'coverage',
-  collectCoverageFrom: ['src/**/*.{js,ts}', '!src/repositories/*.{js,ts}'],
-  collectCoverage: true,
-  testTimeout: 60000,
-  moduleDirectories: ['node_modules', 'src', 'test'],
+  roots: ['<rootDir>/src'],
+  testMatch: ['<rootDir>/src/**/*.spec.ts'],
   setupFiles: ['<rootDir>/.jest/setEnvVars.ts'],
-  testMatch: ['<rootDir>/src/**/*.spec.{ts,js}'],
-  modulePaths: ['<rootDir>/test/'],
+  moduleNameMapper: {
+    '^@lib/(.*)$': '<rootDir>/src/lib/$1',
+    '^@talvio/llm-contracts/fixtures$': '<rootDir>/packages/contracts/src/fixtures',
+    '^@talvio/llm-contracts$': '<rootDir>/packages/contracts/src',
+  },
+  collectCoverageFrom: ['src/**/*.ts', '!src/**/*.spec.ts', '!src/test/**'],
   coverageThreshold: {
-    global: {
-      statements: 40,
-    },
+    global: { statements: 80 },
   },
 };

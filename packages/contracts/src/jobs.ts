@@ -143,6 +143,15 @@ function checkEnvelope(envelope: EnvelopeFields, ctx: z.RefinementCtx) {
   if (!proposal) {
     return;
   }
+  // The publisher fills sourceRevision from the admitted context, never from model output;
+  // a proposal for any other revision is not this job's.
+  if (proposal.source.revision !== envelope.sourceRevision) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'proposal source does not match the admitted context',
+      path: ['result', 'proposal', 'source'],
+    });
+  }
   let expected: ApplyTarget | null = null;
   try {
     expected = applyTargetFor(envelope.operation as ProposalOperation, proposal.source);

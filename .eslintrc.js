@@ -1,8 +1,9 @@
 module.exports = {
+  root: true,
   parser: '@typescript-eslint/parser',
   parserOptions: {
-    ecmaVersion: 2020, // Allows modern ECMAScript features
-    sourceType: 'module', // Allows use of imports
+    ecmaVersion: 2022,
+    sourceType: 'module',
   },
   extends: [
     'eslint:recommended',
@@ -10,20 +11,23 @@ module.exports = {
     'plugin:prettier/recommended',
   ],
   plugins: ['@typescript-eslint', 'prettier', 'eslint-plugin-unused-imports'],
+  env: { node: true, es2022: true, jest: true },
   rules: {
     'prettier/prettier': 'error',
-    semi: ['error', 'always'],
-    'no-unused-vars': ['warn', { argsIgnorePattern: '^_', vars: 'all' }],
-    "unused-imports/no-unused-imports": "warn",
-    '@typescript-eslint/explicit-function-return-type': 'off',
-    '@typescript-eslint/quotes': [
-        'error',
-        'single',
-        {
-            allowTemplateLiterals: true,
-            avoidEscape: true,
-        },
-    ],
+    'no-console': 'error',
+    'no-unused-vars': 'off',
+    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+    'unused-imports/no-unused-imports': 'error',
   },
-  ignorePatterns: ['.eslintrc.js', 'packages/**']
+  ignorePatterns: ['.eslintrc.js', 'node_modules', 'dist', 'coverage', '.serverless', 'packages/contracts/generated'],
+  overrides: [
+    {
+      files: ['*.spec.ts', 'src/test/**/*.ts'],
+      rules: { '@typescript-eslint/no-explicit-any': 'off' },
+    },
+    {
+      files: ['*.js'],
+      rules: { '@typescript-eslint/no-require-imports': 'off' },
+    },
+  ],
 };
