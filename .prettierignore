@@ -1,3 +1,5 @@
 node_modules
 build
 dist
+packages/contracts/generated
+packages/contracts/dist

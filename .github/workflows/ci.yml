@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Enable Yarn
+        run: corepack enable
+      - name: Install
+        run: yarn install --immutable
+      - name: Typecheck
+        run: yarn workspace @talvio/llm-contracts typecheck
+      - name: Test
+        run: yarn workspace @talvio/llm-contracts test

@@ -1,0 +1,16 @@
+{
+  "schema": "legacyQuestionsResponseSchema",
+  "description": "What /api/resume/qa returns today: no ids, reasons or topics; the client numbers questions by position.",
+  "payload": {
+    "questions": [
+      {
+        "question": "Have you led a team? How many people?",
+        "example": "I led 4 engineers on the checkout rewrite."
+      },
+      {
+        "question": "How many years of Go?",
+        "example": null
+      }
+    ]
+  }
+}

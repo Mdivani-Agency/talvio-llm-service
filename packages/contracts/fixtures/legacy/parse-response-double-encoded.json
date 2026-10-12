@@ -1,0 +1,6 @@
+{
+  "schema": "legacyAccountSchema",
+  "description": "What /api/resume/parse returns today: ParsedAccount encoded as a JSON string inside the JSON body. isPresent is a guessed date when the end date is missing.",
+  "encoding": "json-string",
+  "payload": "{\"profile\": {\"email\": null, \"firstName\": \"Nino\", \"lastName\": \"Beridze\", \"role\": \"Backend engineer\", \"tagline\": null, \"phone\": \"\", \"website\": null, \"city\": null, \"country\": null, \"seniority\": null}, \"experience\": [{\"company\": \"Acme\", \"jobTitle\": \"Senior Backend Engineer\", \"startDate\": \"2021-03-01T00:00:00.000Z\", \"endDate\": null, \"isPresent\": \"2026-10-12T00:00:00.000Z\", \"employmentType\": \"\", \"locationType\": null, \"additionalDetails\": null, \"achievements\": [\"Cut checkout latency by 40%\"], \"responsibilities\": null, \"keyContributions\": null}], \"education\": null, \"recommendations\": null, \"projects\": null, \"skills\": null, \"tools\": null, \"links\": null, \"languages\": null}"
+}

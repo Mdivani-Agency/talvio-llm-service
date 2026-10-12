@@ -1,0 +1,1512 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "proposalId": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "source": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "sourceHash": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "applyTarget": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "changes": {
+      "$ref": "#/$defs/__schema6"
+    },
+    "omissions": {
+      "$ref": "#/$defs/__schema41"
+    },
+    "document": {
+      "$ref": "#/$defs/__schema52"
+    },
+    "summary": {
+      "$ref": "#/$defs/__schema53"
+    }
+  },
+  "required": [
+    "proposalId",
+    "source",
+    "sourceHash",
+    "applyTarget",
+    "changes",
+    "omissions",
+    "document",
+    "summary"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "__schema1": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "profile"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "revision": {
+              "$ref": "#/$defs/__schema2"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "revision"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "resume"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "revision": {
+              "$ref": "#/$defs/__schema2"
+            },
+            "resumeType": {
+              "$ref": "#/$defs/__schema3"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "draft",
+                "generated"
+              ]
+            },
+            "sourceResumeId": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/__schema0"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "revision",
+            "resumeType",
+            "state",
+            "sourceResumeId"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "__schema2": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "__schema3": {
+      "type": "string",
+      "enum": [
+        "general",
+        "job_specific"
+      ]
+    },
+    "__schema4": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "__schema5": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "profile"
+            },
+            "profileId": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "baseRevision": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "kind",
+            "profileId",
+            "baseRevision"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "resume_draft"
+            },
+            "resumeId": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "baseRevision": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "kind",
+            "resumeId",
+            "baseRevision"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "resume_draft_family"
+            },
+            "generatedResumeId": {
+              "$ref": "#/$defs/__schema0"
+            }
+          },
+          "required": [
+            "kind",
+            "generatedResumeId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "new_resume"
+            },
+            "resumeType": {
+              "$ref": "#/$defs/__schema3"
+            },
+            "derivedFrom": {
+              "$ref": "#/$defs/__schema1"
+            }
+          },
+          "required": [
+            "kind",
+            "resumeType",
+            "derivedFrom"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "__schema6": {
+      "maxItems": 200,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema7"
+      }
+    },
+    "__schema7": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "field"
+            },
+            "changeKind": {
+              "type": "string",
+              "enum": [
+                "rewrite",
+                "factual_addition"
+              ]
+            },
+            "target": {
+              "type": "object",
+              "properties": {
+                "section": {
+                  "$ref": "#/$defs/__schema8"
+                },
+                "entityId": {
+                  "$ref": "#/$defs/__schema9"
+                },
+                "field": {
+                  "$ref": "#/$defs/__schema11"
+                }
+              },
+              "required": [
+                "section",
+                "entityId",
+                "field"
+              ],
+              "additionalProperties": false
+            },
+            "originalValue": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "proposedValue": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "reason": {
+              "$ref": "#/$defs/__schema19"
+            },
+            "factIds": {
+              "$ref": "#/$defs/__schema20"
+            },
+            "evidence": {
+              "$ref": "#/$defs/__schema21"
+            },
+            "confirmation": {
+              "$ref": "#/$defs/__schema36"
+            }
+          },
+          "required": [
+            "type",
+            "changeKind",
+            "target",
+            "originalValue",
+            "proposedValue",
+            "id",
+            "reason",
+            "factIds",
+            "evidence",
+            "confirmation"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "add_entity"
+            },
+            "changeKind": {
+              "type": "string",
+              "const": "factual_addition"
+            },
+            "addition": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "section": {
+                      "type": "string",
+                      "const": "skills"
+                    },
+                    "entity": {
+                      "$ref": "#/$defs/__schema38"
+                    }
+                  },
+                  "required": [
+                    "section",
+                    "entity"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "section": {
+                      "type": "string",
+                      "const": "tools"
+                    },
+                    "entity": {
+                      "$ref": "#/$defs/__schema38"
+                    }
+                  },
+                  "required": [
+                    "section",
+                    "entity"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "section": {
+                      "type": "string",
+                      "const": "languages"
+                    },
+                    "entity": {
+                      "$ref": "#/$defs/__schema39"
+                    }
+                  },
+                  "required": [
+                    "section",
+                    "entity"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "section": {
+                      "type": "string",
+                      "const": "links"
+                    },
+                    "entity": {
+                      "$ref": "#/$defs/__schema40"
+                    }
+                  },
+                  "required": [
+                    "section",
+                    "entity"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "id": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "reason": {
+              "$ref": "#/$defs/__schema19"
+            },
+            "factIds": {
+              "$ref": "#/$defs/__schema20"
+            },
+            "evidence": {
+              "$ref": "#/$defs/__schema21"
+            },
+            "confirmation": {
+              "$ref": "#/$defs/__schema36"
+            }
+          },
+          "required": [
+            "type",
+            "changeKind",
+            "addition",
+            "id",
+            "reason",
+            "factIds",
+            "evidence",
+            "confirmation"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "__schema8": {
+      "type": "string",
+      "enum": [
+        "person",
+        "experience",
+        "education",
+        "projects",
+        "recommendations"
+      ]
+    },
+    "__schema9": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema10"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "__schema10": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]*$"
+    },
+    "__schema11": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "__schema12": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/__schema13"
+        },
+        {
+          "maxItems": 30,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema13"
+          }
+        },
+        {
+          "$ref": "#/$defs/__schema14"
+        }
+      ]
+    },
+    "__schema13": {
+      "type": "string",
+      "maxLength": 5000
+    },
+    "__schema14": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "doc"
+        },
+        "blocks": {
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema15"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "blocks"
+      ],
+      "additionalProperties": false
+    },
+    "__schema15": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "paragraph"
+            },
+            "content": {
+              "$ref": "#/$defs/__schema16"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "bulletList"
+            },
+            "items": {
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema16"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "items"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "orderedList"
+            },
+            "items": {
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema16"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "items"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "__schema16": {
+      "maxItems": 200,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema17"
+      }
+    },
+    "__schema17": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 5000
+        },
+        "marks": {
+          "maxItems": 3,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema18"
+          }
+        },
+        "href": {
+          "type": "string",
+          "maxLength": 2048,
+          "format": "uri"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "__schema18": {
+      "type": "string",
+      "enum": [
+        "bold",
+        "italic",
+        "underline"
+      ]
+    },
+    "__schema19": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "__schema20": {
+      "maxItems": 20,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema10"
+      }
+    },
+    "__schema21": {
+      "maxItems": 20,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema22"
+      }
+    },
+    "__schema22": {
+      "type": "object",
+      "properties": {
+        "sourceKind": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "sourceHash": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "entityId": {
+          "$ref": "#/$defs/__schema24"
+        },
+        "field": {
+          "$ref": "#/$defs/__schema25"
+        },
+        "page": {
+          "$ref": "#/$defs/__schema27"
+        },
+        "block": {
+          "$ref": "#/$defs/__schema28"
+        },
+        "start": {
+          "$ref": "#/$defs/__schema29"
+        },
+        "end": {
+          "$ref": "#/$defs/__schema29"
+        },
+        "originalStart": {
+          "$ref": "#/$defs/__schema30"
+        },
+        "originalEnd": {
+          "$ref": "#/$defs/__schema31"
+        },
+        "excerpt": {
+          "$ref": "#/$defs/__schema32"
+        },
+        "clientSupplied": {
+          "$ref": "#/$defs/__schema33"
+        },
+        "questionId": {
+          "$ref": "#/$defs/__schema34"
+        },
+        "answerRevisionId": {
+          "$ref": "#/$defs/__schema35"
+        }
+      },
+      "required": [
+        "sourceKind",
+        "sourceHash",
+        "entityId",
+        "field",
+        "page",
+        "block",
+        "start",
+        "end",
+        "originalStart",
+        "originalEnd",
+        "excerpt",
+        "clientSupplied",
+        "questionId",
+        "answerRevisionId"
+      ],
+      "additionalProperties": false
+    },
+    "__schema23": {
+      "type": "string",
+      "enum": [
+        "document",
+        "profile",
+        "resume",
+        "answer",
+        "job_description"
+      ]
+    },
+    "__schema24": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema10"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "__schema25": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema26"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "__schema26": {
+      "type": "string",
+      "maxLength": 300
+    },
+    "__schema27": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "__schema28": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "__schema29": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "__schema30": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema29"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "__schema31": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema29"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "__schema32": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "__schema33": {
+      "type": "boolean"
+    },
+    "__schema34": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema10"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "__schema35": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema0"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "__schema36": {
+      "type": "object",
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "claims": {
+          "maxItems": 10,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema37"
+          }
+        }
+      },
+      "required": [
+        "required",
+        "claims"
+      ],
+      "additionalProperties": false
+    },
+    "__schema37": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "required": [
+        "id",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "__schema38": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "name": {
+          "$ref": "#/$defs/__schema26"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "__schema39": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "language": {
+          "$ref": "#/$defs/__schema26"
+        },
+        "proficiency": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "beginner",
+                "intermediate",
+                "fluent",
+                "native"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "language",
+        "proficiency"
+      ],
+      "additionalProperties": false
+    },
+    "__schema40": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema26"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "value": {
+          "$ref": "#/$defs/__schema26"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "__schema41": {
+      "maxItems": 200,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema42"
+      }
+    },
+    "__schema42": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "section": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "entityId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema10"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "field": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "originalValue": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema43"
+            },
+            {
+              "$ref": "#/$defs/__schema49"
+            },
+            {
+              "$ref": "#/$defs/__schema50"
+            },
+            {
+              "$ref": "#/$defs/__schema51"
+            },
+            {
+              "$ref": "#/$defs/__schema38"
+            },
+            {
+              "$ref": "#/$defs/__schema40"
+            },
+            {
+              "$ref": "#/$defs/__schema39"
+            },
+            {
+              "$ref": "#/$defs/__schema12"
+            }
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "required": [
+        "id",
+        "section",
+        "entityId",
+        "field",
+        "originalValue",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "__schema43": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "company": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema26"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "jobTitle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema26"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "employmentType": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "full-time",
+                "part-time",
+                "contract",
+                "self-employed",
+                "volunteer",
+                "internship",
+                "apprenticeship",
+                "seasonal"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "locationType": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "remote",
+                "hybrid",
+                "office"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "startDate": {
+          "$ref": "#/$defs/__schema44"
+        },
+        "endDate": {
+          "$ref": "#/$defs/__schema46"
+        },
+        "current": {
+          "$ref": "#/$defs/__schema47"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema14"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "achievements": {
+          "$ref": "#/$defs/__schema48"
+        },
+        "responsibilities": {
+          "$ref": "#/$defs/__schema48"
+        },
+        "keyContributions": {
+          "$ref": "#/$defs/__schema48"
+        }
+      },
+      "required": [
+        "id",
+        "company",
+        "jobTitle",
+        "employmentType",
+        "locationType",
+        "startDate",
+        "endDate",
+        "current",
+        "description",
+        "achievements",
+        "responsibilities",
+        "keyContributions"
+      ],
+      "additionalProperties": false
+    },
+    "__schema44": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema45"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "__schema45": {
+      "type": "string",
+      "pattern": "^\\d{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12]\\d|3[01]))?)?$"
+    },
+    "__schema46": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema45"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "__schema47": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "__schema48": {
+      "maxItems": 30,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema13"
+      }
+    },
+    "__schema49": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema26"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "degreeType": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "Associate Degree",
+                "Bachelor's Degree",
+                "Master's Degree",
+                "Doctorate Degree",
+                "Professional Degree",
+                "Certificate",
+                "Diploma",
+                "High School Diploma",
+                "Trade School Certificate",
+                "MBA",
+                "MFA",
+                "MEd",
+                "MSW",
+                "PhD",
+                "JD",
+                "MD",
+                "EDD"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "startDate": {
+          "$ref": "#/$defs/__schema44"
+        },
+        "endDate": {
+          "$ref": "#/$defs/__schema46"
+        },
+        "current": {
+          "$ref": "#/$defs/__schema47"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema14"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "degreeType",
+        "startDate",
+        "endDate",
+        "current",
+        "description"
+      ],
+      "additionalProperties": false
+    },
+    "__schema50": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema26"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "url": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema26"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema14"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "url",
+        "description"
+      ],
+      "additionalProperties": false
+    },
+    "__schema51": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema26"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "url": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema26"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema14"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "url",
+        "description"
+      ],
+      "additionalProperties": false
+    },
+    "__schema52": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "person": {
+              "type": "object",
+              "properties": {
+                "firstName": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/__schema26"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "lastName": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/__schema26"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "role": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/__schema26"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "tagline": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/__schema13"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "seniority": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "entry",
+                        "mid",
+                        "senior"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "firstName",
+                "lastName",
+                "role",
+                "tagline",
+                "seniority"
+              ],
+              "additionalProperties": false
+            },
+            "contacts": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/__schema26"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "phone": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/__schema26"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "url": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/__schema26"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "email",
+                "phone",
+                "url"
+              ],
+              "additionalProperties": false
+            },
+            "location": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/__schema26"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "country": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/__schema26"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "city",
+                "country"
+              ],
+              "additionalProperties": false
+            },
+            "experience": {
+              "maxItems": 50,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema43"
+              }
+            },
+            "education": {
+              "maxItems": 50,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema49"
+              }
+            },
+            "projects": {
+              "maxItems": 50,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema50"
+              }
+            },
+            "recommendations": {
+              "maxItems": 50,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema51"
+              }
+            },
+            "skills": {
+              "maxItems": 50,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema38"
+              }
+            },
+            "tools": {
+              "maxItems": 50,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema38"
+              }
+            },
+            "links": {
+              "maxItems": 50,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema40"
+              }
+            },
+            "languages": {
+              "maxItems": 50,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema39"
+              }
+            }
+          },
+          "required": [
+            "person",
+            "contacts",
+            "location",
+            "experience",
+            "education",
+            "projects",
+            "recommendations",
+            "skills",
+            "tools",
+            "links",
+            "languages"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "__schema53": {
+      "type": "string",
+      "maxLength": 2000
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "schema": "createJobRequestSchema",
+  "description": "A schema version the service does not support.",
+  "payload": {
+    "schemaVersion": "2.0",
+    "clientRequestId": "parse-7f3a9c21",
+    "locale": "en-US",
+    "operation": "parse_document",
+    "input": {
+      "kind": "text",
+      "text": "x",
+      "extraction": null
+    }
+  }
+}

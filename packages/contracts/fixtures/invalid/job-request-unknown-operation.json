@@ -1,0 +1,11 @@
+{
+  "schema": "createJobRequestSchema",
+  "description": "Unknown operation.",
+  "payload": {
+    "schemaVersion": "1.0",
+    "clientRequestId": "chat-12345678",
+    "locale": "en-US",
+    "operation": "chat",
+    "input": {}
+  }
+}

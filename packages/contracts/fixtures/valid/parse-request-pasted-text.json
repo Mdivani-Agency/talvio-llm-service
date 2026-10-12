@@ -1,0 +1,15 @@
+{
+  "schema": "createJobRequestSchema",
+  "description": "parse_document from pasted text: partial profile with a missing end date and no phone.",
+  "payload": {
+    "schemaVersion": "1.0",
+    "clientRequestId": "parse-7f3a9c21",
+    "locale": "en-US",
+    "operation": "parse_document",
+    "input": {
+      "kind": "text",
+      "text": "Nino Beridze\nBackend engineer\nAcme — Senior Backend Engineer, March 2021 –\nCut checkout latency by 40%\nGlobex — Backend Engineer, 2018 – Feb 2021",
+      "extraction": null
+    }
+  }
+}
