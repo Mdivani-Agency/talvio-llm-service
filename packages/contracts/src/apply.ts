@@ -91,8 +91,9 @@ function sameTarget(left: ApplyTarget, right: ApplyTarget): boolean {
 
 /**
  * Checks an apply request against its proposal before any write. Returns every problem found;
- * an empty list means the selection is consistent. Revision checks against the live target
- * happen in the web's save transaction.
+ * an empty list means the selection is consistent. The web's save transaction then checks a
+ * resume target against its `baseRevision`. A profile's `baseRevision` is recorded in the
+ * receipt but not enforced in v1: profile apply is last-write-wins (decision 12 Oct 2026).
  */
 export function checkApplySelection(
   proposal: Proposal,

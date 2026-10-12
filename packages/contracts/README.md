@@ -1,16 +1,19 @@
 # @talvio/llm-contracts
 
-Versioned request and result contracts for the Talvio LLM service (`/llm/v1`): Zod schemas, TypeScript types, generated OpenAPI and JSON Schema, and fixtures both repositories test against.
+The source of the LLM service's `/llm/v1` contract: Zod schemas and TypeScript types used by this service, the generated OpenAPI and JSON Schema, and reference fixtures.
 
-See [docs/contracts.md](../../docs/contracts.md) for the rules, versioning and rollout ownership.
+**Consumers do not import this package** (decision 12 Oct 2026). Clients such as talvio-web-app implement their own client, as for any third-party API, from:
 
-```ts
-import { createJobRequestSchema, jobSchema, applyTargetFor } from '@talvio/llm-contracts';
-import { loadFixtures } from '@talvio/llm-contracts/fixtures';
-```
+- [docs/contracts.md](../../docs/contracts.md): rules, versioning and rollout ownership;
+- `generated/openapi.json` and `generated/schemas/*.json`: the machine-readable contract;
+- `fixtures/valid` and `fixtures/invalid`: reference payloads a client can use in its own tests.
+
+Read these files from this repository at the tag or commit the service deploys. Publishing the package to npm is deferred to [MDI-439](https://linear.app/mdivani/issue/MDI-439).
+
+Inside this repository:
 
 ```bash
 yarn test       # contract tests; no network or model calls
 yarn typecheck
-yarn generate   # rebuild generated/ after a schema change
+yarn generate   # rebuild generated/ after a schema change; commit the result
 ```

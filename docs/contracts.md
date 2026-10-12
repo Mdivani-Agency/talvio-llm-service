@@ -59,7 +59,7 @@ Every result comes in an envelope with `jobId`, `schemaVersion`, `inputHash`, `c
 
 | Operation | Source | Apply target |
 | -- | -- | -- |
-| `improve_profile` | profile | `profile` at `baseRevision` |
+| `improve_profile` | profile | `profile`; `baseRevision` is recorded but not enforced in v1 (last-write-wins) |
 | `improve_resume` | draft resume | `resume_draft` at `baseRevision` |
 | `improve_resume` | generated resume | `resume_draft_family`: save into the generated resume's one open draft; the generated row is never modified |
 | `tailor_resume` | any | `new_resume` with `resumeType: job_specific` and `derivedFrom`; not part of the source's draft family (`source_resume_id` stays reserved for drafts of generated resumes) |
@@ -105,7 +105,7 @@ Decided 12 Oct 2026 ([MDI-181](https://linear.app/mdivani/issue/MDI-181)):
 - **Self-contained data.** The service keeps all of its state in its own DynamoDB tables and private S3 buckets, which Terraform owns. It never reads or writes the web app's Supabase database.
 - **Authorization from token claims.** An API Gateway authorizer verifies the Supabase access token and reads the `account_status` and `plan` claims, which a custom-access-token hook in talvio-web-app adds ([MDI-440](https://linear.app/mdivani/issue/MDI-440)). Tokens live 15 minutes, so a suspended account or a plan change takes effect within one token lifetime.
 - **Per-user limits by plan.** AI limits are resolved per user from `plan` plus overrides and enforced by the service's own quota store. They replace the web's `ai_daily_usage` cap at cutover.
-- **Deletion by retention.** There is no account-deletion call. Service data ages out through TTL and lifecycle rules: 24 h for incomplete uploads, 7 days for files and unaccepted results, 30 days for content-free job metadata.
+- **Deletion by retention.** There is no account-deletion call. Service data ages out through TTL and lifecycle rules: 24 h for incomplete uploads, 7 days for files and for every result payload (accepted or not), 30 days for content-free job metadata. The service is never told that a proposal was accepted: the web copies accepted content and its provenance into its own tables when it applies it, so a result's expiry never loses accepted content.
 - **Apply stays in the web.** Accepted proposals are saved by a Postgres function in the web app, atomically with the apply receipt ([MDI-222](https://linear.app/mdivani/issue/MDI-222)).
 
 ## Known gaps
