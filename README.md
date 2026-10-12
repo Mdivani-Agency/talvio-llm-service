@@ -2,7 +2,7 @@
 
 Talvio's AI orchestration service: an authenticated async job API at `https://api.<stage>.talvio.co/llm/v1` for parsing documents, analysing and improving profiles and resumes, gap questions and job-specific resumes. Design: [Talvio LLM orchestration service — system design](https://app.notion.com/p/3daf87a6db5781eb93d5e25326f24619) (epic [MDI-181](https://linear.app/mdivani/issue/MDI-181)).
 
-**Status:** API boundary only ([MDI-212](https://linear.app/mdivani/issue/MDI-212)). Authentication, routing, request validation and idempotency checks run. No store, queue or model is wired yet, so every route except health answers `503 dependency_unavailable` on deployed stages. Persistence arrives with MDI-214, execution with MDI-215, and models with MDI-217.
+**Status:** API boundary only ([MDI-212](https://linear.app/mdivani/issue/MDI-212)). Authentication, routing, request validation and idempotency checks run. No store, queue or model is wired yet, so every route except health answers `503 dependency_unavailable` on deployed stages. Persistence arrives with MDI-214 (DynamoDB, Terraform-owned), execution with MDI-215, and models with MDI-217. The service is self-contained: its data lives in its own AWS resources, and it shares nothing with the web app's database except the identity in the access token.
 
 ## Layout
 
@@ -33,7 +33,7 @@ yarn start              # serverless-offline on :3005 with the memory store (nee
 
 - **Callers.** Browsers call the web app's same-origin `/api/llm` adapter, which forwards the user's Supabase access token. The service sends no CORS headers.
 - **Token checks.** Every route except `GET /v1/health` verifies the token against the project's JWKS: signature, issuer `${SUPABASE_URL}/auth/v1`, audience `authenticated`, asymmetric algorithm only (`ES256`/`RS256`), `exp`, a UUID `sub` and `role: authenticated`. Anonymous users are refused, and `user_metadata` is never read. Rotated keys are picked up from JWKS without a deploy.
-- **Account and ownership checks.** The account must still be active, so a deleted account's unexpired token is refused. Every store call is scoped by owner; another user's job, session or document is a 404.
+- **Account and ownership checks.** Today the handler calls `AccountStore.isActive`. [MDI-440](https://linear.app/mdivani/issue/MDI-440) replaces that, and the in-function token check, with an API Gateway authorizer that reads the `account_status` and `plan` claims; the service never queries Supabase. Every store call is scoped by owner; another user's job, session or document is a 404.
 - **Admission checks.** `POST /v1/jobs` requires an `Idempotency-Key` header equal to `clientRequestId`. A replay of the same request returns the original job; the same key with a different body returns 409. Requests are validated with the contract schemas, and validation errors list field paths, never values.
 - **Logging.** Logs are JSON lines with a fixed set of content-free fields (correlation id, route, status, duration, a hashed user reference, error code). Tokens, bodies, document text and error messages from unknown failures are never logged.
 - **Permissions.** The function has no AWS permissions. It cannot call Bedrock or read any bucket. MDI-213 adds scoped roles.
