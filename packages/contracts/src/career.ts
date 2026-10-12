@@ -2,7 +2,13 @@ import { z } from 'zod';
 
 import { contentDocSchema } from './content';
 import { LIMITS } from './limits';
-import { longTextSchema, partialDateSchema, shortTextSchema, stableIdSchema } from './primitives';
+import {
+  duplicateIds,
+  longTextSchema,
+  partialDateSchema,
+  shortTextSchema,
+  stableIdSchema,
+} from './primitives';
 
 /*
  * Career data as the LLM service sees it. This is a contract type, not a database row or web
@@ -132,19 +138,40 @@ export const languageItemSchema = z.strictObject({
 
 const section = <T extends z.ZodType>(entry: T) => z.array(entry).max(LIMITS.entriesPerSection);
 
-export const careerDocumentSchema = z.strictObject({
-  person: personSchema,
-  contacts: contactsSchema,
-  location: locationSchema,
-  experience: section(experienceEntrySchema),
-  education: section(educationEntrySchema),
-  projects: section(projectEntrySchema),
-  recommendations: section(recommendationEntrySchema),
-  skills: section(namedItemSchema),
-  tools: section(namedItemSchema),
-  links: section(linkItemSchema),
-  languages: section(languageItemSchema),
-});
+const ENTITY_SECTIONS = [
+  'experience',
+  'education',
+  'projects',
+  'recommendations',
+  'skills',
+  'tools',
+  'links',
+  'languages',
+] as const;
+
+/** Entity ids are unique across the whole document, so a change target is never ambiguous. */
+export const careerDocumentSchema = z
+  .strictObject({
+    person: personSchema,
+    contacts: contactsSchema,
+    location: locationSchema,
+    experience: section(experienceEntrySchema),
+    education: section(educationEntrySchema),
+    projects: section(projectEntrySchema),
+    recommendations: section(recommendationEntrySchema),
+    skills: section(namedItemSchema),
+    tools: section(namedItemSchema),
+    links: section(linkItemSchema),
+    languages: section(languageItemSchema),
+  })
+  .superRefine((document, ctx) => {
+    const ids = ENTITY_SECTIONS.flatMap((name) =>
+      document[name].map((entity: { id: string }) => entity.id),
+    );
+    for (const id of duplicateIds(ids)) {
+      ctx.addIssue({ code: 'custom', message: `duplicate entity id ${id}`, path: ['experience'] });
+    }
+  });
 
 export const CAREER_SECTIONS = [
   'person',

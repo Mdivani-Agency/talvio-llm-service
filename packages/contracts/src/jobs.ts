@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+import { ApplyTargetError, applyTargetFor, type ProposalOperation } from './apply';
+import { canonicalJson } from './canonical';
+
 import { jobErrorSchema } from './errors';
 import { warningSchema } from './evidence';
 import {
@@ -17,6 +20,7 @@ import {
   sha256Schema,
   uuidSchema,
 } from './primitives';
+import type { ApplyTarget, Proposal } from './proposals';
 import { schemaVersionSchema } from './version';
 
 /*
@@ -115,22 +119,65 @@ export const resultVersionsSchema = z.strictObject({
   modelId: z.string().min(1).max(128),
 });
 
+type EnvelopeFields = {
+  operation: Operation;
+  contextRevisionId: string | null;
+  contextHash: string | null;
+  sourceRevision: string | null;
+  result: { proposal?: Proposal };
+};
+
+/**
+ * Session results must carry their context bindings (only parse_document has none), and a
+ * proposal's apply target must be the one applyTargetFor allows for its operation and source.
+ */
+function checkEnvelope(envelope: EnvelopeFields, ctx: z.RefinementCtx) {
+  if (envelope.operation !== 'parse_document') {
+    for (const field of ['contextRevisionId', 'contextHash', 'sourceRevision'] as const) {
+      if (envelope[field] === null) {
+        ctx.addIssue({ code: 'custom', message: `${field} is required`, path: [field] });
+      }
+    }
+  }
+  const proposal = envelope.result.proposal;
+  if (!proposal) {
+    return;
+  }
+  let expected: ApplyTarget | null = null;
+  try {
+    expected = applyTargetFor(envelope.operation as ProposalOperation, proposal.source);
+  } catch (error) {
+    if (!(error instanceof ApplyTargetError)) {
+      throw error;
+    }
+  }
+  if (!expected || canonicalJson(expected) !== canonicalJson(proposal.applyTarget)) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'applyTarget is not allowed for this operation and source',
+      path: ['result', 'proposal', 'applyTarget'],
+    });
+  }
+}
+
 /** Every published result carries its bindings, so stale results are detectable. */
 const resultEnvelope = <O extends Operation>(operation: O) =>
-  z.strictObject({
-    jobId: uuidSchema,
-    schemaVersion: schemaVersionSchema,
-    operation: z.literal(operation),
-    inputHash: sha256Schema,
-    contextRevisionId: uuidSchema.nullable(),
-    contextHash: sha256Schema.nullable(),
-    sourceRevision: revisionSchema.nullable(),
-    versions: resultVersionsSchema,
-    /** `partial` results must be acknowledged before use; they never look complete. */
-    resultKind: z.enum(['complete', 'partial']),
-    warnings: z.array(warningSchema).max(100),
-    result: operationResultSchemas[operation],
-  });
+  z
+    .strictObject({
+      jobId: uuidSchema,
+      schemaVersion: schemaVersionSchema,
+      operation: z.literal(operation),
+      inputHash: sha256Schema,
+      contextRevisionId: uuidSchema.nullable(),
+      contextHash: sha256Schema.nullable(),
+      sourceRevision: revisionSchema.nullable(),
+      versions: resultVersionsSchema,
+      /** `partial` results must be acknowledged before use; they never look complete. */
+      resultKind: z.enum(['complete', 'partial']),
+      warnings: z.array(warningSchema).max(100),
+      result: operationResultSchemas[operation],
+    })
+    .superRefine((envelope, ctx) => checkEnvelope(envelope as unknown as EnvelopeFields, ctx));
 
 export const resultEnvelopeSchemas = Object.fromEntries(
   OPERATIONS.map((operation) => [operation, resultEnvelope(operation)]),
@@ -138,10 +185,22 @@ export const resultEnvelopeSchemas = Object.fromEntries(
 
 export type ResultEnvelope<O extends Operation> = z.infer<(typeof resultEnvelopeSchemas)[O]>;
 
-type JobStateFields = { status: JobStatus; result: unknown; error: unknown };
+type JobStateFields = {
+  jobId: string;
+  status: JobStatus;
+  result: { jobId: string } | null;
+  error: unknown;
+};
 
 /** A result exactly when succeeded; an error whenever failed or expired. */
 function checkJobState(job: JobStateFields, ctx: z.RefinementCtx) {
+  if (job.result && job.result.jobId !== job.jobId) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'result belongs to another job',
+      path: ['result', 'jobId'],
+    });
+  }
   if ((job.status === 'succeeded') !== (job.result !== null)) {
     ctx.addIssue({
       code: 'custom',

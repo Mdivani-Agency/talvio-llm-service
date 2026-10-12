@@ -30,7 +30,18 @@ export const isoDateTimeSchema = z.iso.datetime({ offset: true });
  */
 export const partialDateSchema = z
   .string()
-  .regex(/^\d{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?)?$/);
+  .regex(/^\d{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?)?$/)
+  .refine(isCalendarDate, { message: 'not a calendar date' });
+
+/** Rejects days that do not exist in their month, such as 2023-02-29 or 2024-04-31. */
+function isCalendarDate(value: string): boolean {
+  const [year, month, day] = value.split('-').map(Number);
+  if (day === undefined || month === undefined || year === undefined) {
+    return true;
+  }
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
 
 /** BCP 47 tag that controls formatting, e.g. `en-US`. */
 export const localeSchema = z
