@@ -1,0 +1,85 @@
+{
+  "schema": "legacyAccountSchema",
+  "description": "What /api/resume/qa and /api/resume/account receive today (documentToAiPayload), sent as JSON.stringify in the body's resume/account string. Client list keys like experience-1 are not row ids.",
+  "payload": {
+    "profile": {
+      "firstName": "Nino",
+      "lastName": "Beridze",
+      "role": "Senior Backend Engineer",
+      "email": "nino@example.com",
+      "tagline": "Backend engineer focused on payments.",
+      "city": "Tbilisi",
+      "country": "Georgia"
+    },
+    "skills": [
+      {
+        "id": "4a5b6c7d-8e9f-4a0b-9c2d-3e4f5a6b7c84",
+        "name": "Go"
+      },
+      {
+        "name": "PostgreSQL"
+      },
+      {
+        "name": ""
+      }
+    ],
+    "tools": [
+      {
+        "name": "Kafka"
+      }
+    ],
+    "links": [
+      {
+        "type": "github",
+        "value": "https://github.com/nino-example"
+      }
+    ],
+    "languages": [
+      {
+        "language": "English",
+        "proficiency": "fluent"
+      }
+    ],
+    "experience": [
+      {
+        "id": "1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f51",
+        "company": "Acme",
+        "jobTitle": "Senior Backend Engineer",
+        "startDate": "2021-03-01T00:00:00.000Z",
+        "isPresent": true,
+        "employmentType": "full-time",
+        "locationType": "hybrid",
+        "additionalDetails": "Led the payments platform team at Acme.",
+        "achievements": [
+          "Cut checkout latency by 40%"
+        ],
+        "responsibilities": [
+          "Own the payments API"
+        ],
+        "keyContributions": []
+      },
+      {
+        "id": "experience-1",
+        "company": "Globex",
+        "jobTitle": "Backend Engineer",
+        "startDate": "2018-01-01T00:00:00.000Z",
+        "endDate": "2021-02-01T00:00:00.000Z",
+        "responsibilities": [
+          "Maintained billing jobs"
+        ]
+      }
+    ],
+    "education": [
+      {
+        "id": "3f4a5b6c-7d8e-4f9a-8b1c-2d3e4f5a6b73",
+        "name": "Tbilisi State University",
+        "degreeType": "Bachelor's Degree",
+        "startDate": "2013-09-01T00:00:00.000Z",
+        "endDate": "2017-06-01T00:00:00.000Z",
+        "isPresent": false
+      }
+    ],
+    "projects": [],
+    "recommendations": []
+  }
+}

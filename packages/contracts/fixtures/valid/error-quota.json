@@ -1,0 +1,12 @@
+{
+  "schema": "errorBodySchema",
+  "description": "Daily quota error; Retry-After is sent as a header.",
+  "payload": {
+    "error": {
+      "code": "quota_exceeded",
+      "message": "You have used today’s AI requests. They reset at 00:00 UTC.",
+      "retryable": true,
+      "correlationId": "corr-01HZX9"
+    }
+  }
+}

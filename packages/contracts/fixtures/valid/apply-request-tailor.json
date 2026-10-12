@@ -1,0 +1,29 @@
+{
+  "schema": "applyRequestSchema",
+  "description": "Apply a tailoring proposal as a new resume with a stable client draft id and confirmed claims.",
+  "payload": {
+    "schemaVersion": "1.0",
+    "jobId": "7b8c9d0e-1f2a-4b3c-8d5e-6f7a8b9c0d1b",
+    "proposalId": "5f6a7b8c-9d0e-4f1a-8b3c-4d5e6f7a8b9f",
+    "idempotencyKey": "apply-6a7b8c9d",
+    "target": {
+      "kind": "new_resume",
+      "resumeType": "job_specific",
+      "derivedFrom": {
+        "kind": "profile",
+        "id": "3f1c2b7e-8a4d-4c1e-9b2a-6d5e4f3a2b10",
+        "revision": "2026-09-30T08:00:00.000Z"
+      }
+    },
+    "clientDraftId": "6a7b8c9d-0e1f-4a2b-9c4d-5e6f7a8b9c0a",
+    "selectedChangeIds": [
+      "change:tagline"
+    ],
+    "acceptedOmissionIds": [
+      "omit:globex-billing"
+    ],
+    "confirmedClaimIds": [
+      "claim:reliable"
+    ]
+  }
+}

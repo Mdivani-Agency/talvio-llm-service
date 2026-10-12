@@ -1,0 +1,24 @@
+{
+  "schema": "jobSchema",
+  "description": "A failed job carries a safe error and no result.",
+  "payload": {
+    "jobId": "8e9f0a1b-2c3d-4e4f-9a6b-7c8d9e0f1a28",
+    "operation": "parse_document",
+    "status": "failed",
+    "stage": "done",
+    "sessionId": null,
+    "contextRevisionId": null,
+    "parentJobId": null,
+    "createdAt": "2026-10-12T10:00:00Z",
+    "updatedAt": "2026-10-12T10:01:30Z",
+    "deadlineAt": "2026-10-12T10:10:00Z",
+    "pollAfterMs": null,
+    "result": null,
+    "error": {
+      "code": "budget_exceeded",
+      "message": "This document is too long to process. Try a shorter version.",
+      "retryable": false,
+      "correlationId": "corr-01HZX8"
+    }
+  }
+}

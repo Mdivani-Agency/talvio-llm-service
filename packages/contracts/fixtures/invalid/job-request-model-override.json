@@ -1,0 +1,16 @@
+{
+  "schema": "createJobRequestSchema",
+  "description": "Clients cannot choose a model or add unknown fields.",
+  "payload": {
+    "schemaVersion": "1.0",
+    "clientRequestId": "parse-7f3a9c21",
+    "locale": "en-US",
+    "operation": "parse_document",
+    "modelId": "some-other-model",
+    "input": {
+      "kind": "text",
+      "text": "x",
+      "extraction": null
+    }
+  }
+}

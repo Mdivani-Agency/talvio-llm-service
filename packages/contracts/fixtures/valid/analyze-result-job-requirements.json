@@ -1,0 +1,234 @@
+{
+  "schema": "resultEnvelopeSchemas.analyze_resume",
+  "description": "Analysis with JD requirements, a requirement-evidence matrix and prioritized findings.",
+  "payload": {
+    "jobId": "8e9f0a1b-2c3d-4e4f-9a6b-7c8d9e0f1a28",
+    "schemaVersion": "1.0",
+    "operation": "analyze_resume",
+    "inputHash": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+    "contextRevisionId": "6c7d8e9f-0a1b-4c2d-9e4f-5a6b7c8d9e06",
+    "contextHash": "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5",
+    "sourceRevision": "2026-09-30T08:00:00.000Z",
+    "versions": {
+      "pipelineReleaseId": "rel-2026-10-12.1",
+      "promptVersion": "analyze_resume@1",
+      "modelId": "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    },
+    "resultKind": "complete",
+    "warnings": [],
+    "result": {
+      "findings": [
+        {
+          "id": "finding:1",
+          "severity": "high",
+          "category": "job_match",
+          "section": "experience",
+          "entityId": "1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f51",
+          "message": "Team leadership is preferred by the job but not shown.",
+          "evidence": []
+        },
+        {
+          "id": "finding:2",
+          "severity": "medium",
+          "category": "weak_evidence",
+          "section": "skills",
+          "entityId": "4a5b6c7d-8e9f-4a0b-9c2d-3e4f5a6b7c84",
+          "message": "Go is listed without context or duration.",
+          "evidence": [
+            {
+              "sourceKind": "resume",
+              "sourceHash": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+              "entityId": "4a5b6c7d-8e9f-4a0b-9c2d-3e4f5a6b7c84",
+              "field": "name",
+              "page": null,
+              "block": null,
+              "start": 0,
+              "end": 2,
+              "originalStart": null,
+              "originalEnd": null,
+              "excerpt": "Go",
+              "clientSupplied": false,
+              "questionId": null,
+              "answerRevisionId": null
+            }
+          ]
+        }
+      ],
+      "requirements": [
+        {
+          "id": "req:1",
+          "text": "5+ years building backend services in Go",
+          "kind": "required",
+          "evidence": [
+            {
+              "sourceKind": "job_description",
+              "sourceHash": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+              "entityId": null,
+              "field": null,
+              "page": null,
+              "block": null,
+              "start": 45,
+              "end": 85,
+              "originalStart": null,
+              "originalEnd": null,
+              "excerpt": "5+ years building backend services in Go",
+              "clientSupplied": false,
+              "questionId": null,
+              "answerRevisionId": null
+            }
+          ]
+        },
+        {
+          "id": "req:2",
+          "text": "experience with PostgreSQL at scale",
+          "kind": "required",
+          "evidence": [
+            {
+              "sourceKind": "job_description",
+              "sourceHash": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+              "entityId": null,
+              "field": null,
+              "page": null,
+              "block": null,
+              "start": 97,
+              "end": 132,
+              "originalStart": null,
+              "originalEnd": null,
+              "excerpt": "experience with PostgreSQL at scale",
+              "clientSupplied": false,
+              "questionId": null,
+              "answerRevisionId": null
+            }
+          ]
+        },
+        {
+          "id": "req:3",
+          "text": "Kafka or another event streaming platform",
+          "kind": "preferred",
+          "evidence": [
+            {
+              "sourceKind": "job_description",
+              "sourceHash": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+              "entityId": null,
+              "field": null,
+              "page": null,
+              "block": null,
+              "start": 145,
+              "end": 186,
+              "originalStart": null,
+              "originalEnd": null,
+              "excerpt": "Kafka or another event streaming platform",
+              "clientSupplied": false,
+              "questionId": null,
+              "answerRevisionId": null
+            }
+          ]
+        },
+        {
+          "id": "req:4",
+          "text": "experience leading a small team",
+          "kind": "preferred",
+          "evidence": [
+            {
+              "sourceKind": "job_description",
+              "sourceHash": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+              "entityId": null,
+              "field": null,
+              "page": null,
+              "block": null,
+              "start": 199,
+              "end": 230,
+              "originalStart": null,
+              "originalEnd": null,
+              "excerpt": "experience leading a small team",
+              "clientSupplied": false,
+              "questionId": null,
+              "answerRevisionId": null
+            }
+          ]
+        }
+      ],
+      "coverage": [
+        {
+          "requirementId": "req:1",
+          "status": "partial",
+          "evidence": [
+            {
+              "sourceKind": "resume",
+              "sourceHash": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+              "entityId": "4a5b6c7d-8e9f-4a0b-9c2d-3e4f5a6b7c84",
+              "field": "name",
+              "page": null,
+              "block": null,
+              "start": 0,
+              "end": 2,
+              "originalStart": null,
+              "originalEnd": null,
+              "excerpt": "Go",
+              "clientSupplied": false,
+              "questionId": null,
+              "answerRevisionId": null
+            }
+          ],
+          "note": "Go is listed as a skill; years of Go use are not stated."
+        },
+        {
+          "requirementId": "req:2",
+          "status": "partial",
+          "evidence": [
+            {
+              "sourceKind": "resume",
+              "sourceHash": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+              "entityId": "legacy:skills:1",
+              "field": "name",
+              "page": null,
+              "block": null,
+              "start": 0,
+              "end": 10,
+              "originalStart": null,
+              "originalEnd": null,
+              "excerpt": "PostgreSQL",
+              "clientSupplied": false,
+              "questionId": null,
+              "answerRevisionId": null
+            }
+          ],
+          "note": null
+        },
+        {
+          "requirementId": "req:3",
+          "status": "supported",
+          "evidence": [
+            {
+              "sourceKind": "resume",
+              "sourceHash": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+              "entityId": "legacy:tools:0",
+              "field": "name",
+              "page": null,
+              "block": null,
+              "start": 0,
+              "end": 5,
+              "originalStart": null,
+              "originalEnd": null,
+              "excerpt": "Kafka",
+              "clientSupplied": false,
+              "questionId": null,
+              "answerRevisionId": null
+            }
+          ],
+          "note": null
+        },
+        {
+          "requirementId": "req:4",
+          "status": "missing",
+          "evidence": [],
+          "note": "Mentoring is mentioned, team leadership is not."
+        }
+      ],
+      "priorities": [
+        "finding:1",
+        "finding:2"
+      ]
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema": "createJobRequestSchema",
+  "description": "parse_document from an uploaded document that reached ready.",
+  "payload": {
+    "schemaVersion": "1.0",
+    "clientRequestId": "parse-doc-5e6f7a8b",
+    "locale": "en-US",
+    "operation": "parse_document",
+    "input": {
+      "kind": "document",
+      "documentId": "0a1b2c3d-4e5f-4a6b-9c8d-9e0f1a2b3c4a"
+    }
+  }
+}

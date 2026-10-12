@@ -1,0 +1,18 @@
+{
+  "schema": "contentDocSchema",
+  "description": "Only https links are allowed in rich text.",
+  "payload": {
+    "type": "doc",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "text": "click",
+            "href": "javascript:alert(1)"
+          }
+        ]
+      }
+    ]
+  }
+}
