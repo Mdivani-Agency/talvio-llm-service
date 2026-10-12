@@ -106,6 +106,8 @@ describe('sessions', () => {
     const { sessionId, latestContext } = json((await create(improveSession)).body) as any;
     const set = app.store.testing.addQuestionSet({
       sessionId,
+      sourceHash: latestContext.sourceHash,
+      jobDescriptionHash: latestContext.jobDescriptionHash,
       round: 1,
       questions: [
         {
@@ -150,6 +152,93 @@ describe('sessions', () => {
     expect(saved.statusCode).toBe(201);
     expect(contextRevisionSchema.parse(json(saved.body)).answerRevisionId).not.toBeNull();
     expect((await answer([{ questionId: 'q:lead-team', status: 'skipped' }])).statusCode).toBe(409);
+  });
+});
+
+describe('context changes', () => {
+  let app: TestApp;
+  let tokenA: string;
+
+  beforeEach(async () => {
+    app = await testApp();
+    tokenA = await app.tokenFor(USER_A);
+  });
+
+  const revise = (
+    sessionId: string,
+    base: string,
+    jobDescription: unknown,
+    source = improveSession.source,
+  ) =>
+    app.handle(
+      event('POST', '/v1/sessions/{sessionId}/contexts', {
+        params: { sessionId },
+        body: { schemaVersion: '1.0', baseContextRevisionId: base, source, jobDescription },
+        token: tokenA,
+      }),
+    );
+
+  it('keeps a job description on tailoring sessions', async () => {
+    const { sessionId, latestContext } = json(
+      (await app.handle(event('POST', '/v1/sessions', { body: tailorSession, token: tokenA })))
+        .body,
+    ) as any;
+    const response = await revise(sessionId, latestContext.contextRevisionId, null);
+    expect(response.statusCode).toBe(400);
+    expect(json(response.body)?.error.issues).toEqual([
+      { path: 'jobDescription', message: 'Required for tailoring.' },
+    ]);
+    expect(
+      (await revise(sessionId, latestContext.contextRevisionId, tailorSession.jobDescription))
+        .statusCode,
+    ).toBe(201);
+  });
+
+  it('refuses answers to questions issued for an earlier source', async () => {
+    const { sessionId, latestContext } = json(
+      (await app.handle(event('POST', '/v1/sessions', { body: improveSession, token: tokenA })))
+        .body,
+    ) as any;
+    const set = app.store.testing.addQuestionSet({
+      sessionId,
+      sourceHash: latestContext.sourceHash,
+      jobDescriptionHash: latestContext.jobDescriptionHash,
+      round: 1,
+      questions: [
+        {
+          id: 'q:lead-team',
+          topicKey: 'leadership',
+          prompt: 'Have you led a team?',
+          guidance: null,
+          reason: 'Relevant.',
+          targetSection: null,
+          targetEntityId: null,
+          requirementIds: [],
+        },
+      ],
+    });
+    const changedSource = {
+      ...improveSession.source,
+      document: { ...improveSession.source.document, skills: [] },
+    };
+    const next = json(
+      (await revise(sessionId, latestContext.contextRevisionId, null, changedSource)).body,
+    ) as any;
+
+    const response = await app.handle(
+      event('POST', '/v1/sessions/{sessionId}/answers', {
+        params: { sessionId },
+        body: {
+          schemaVersion: '1.0',
+          baseContextRevisionId: next.contextRevisionId,
+          questionSetId: set.questionSetId,
+          answers: [{ questionId: 'q:lead-team', status: 'skipped' }],
+        },
+        token: tokenA,
+      }),
+    );
+    expect(response.statusCode).toBe(409);
+    expect(json(response.body)?.error.code).toBe('stale_context');
   });
 });
 

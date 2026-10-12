@@ -146,6 +146,9 @@ export type QuestionSetRecord = {
   sessionId: string;
   round: number;
   questions: Question[];
+  /** The source and job description the questions were issued for. */
+  sourceHash: string;
+  jobDescriptionHash: string | null;
 };
 
 export interface SessionStore {
@@ -179,6 +182,8 @@ export interface SessionStore {
     baseContextRevisionId: string;
     questionSetId: string;
     answers: Answer[];
+    /** Hash of the canonical answers; folded into the new revision's contextHash. */
+    answersHash: string;
     now: Date;
   }): Promise<ContextRevision | 'stale' | null>;
   delete(ownerId: string, sessionId: string): Promise<boolean>;

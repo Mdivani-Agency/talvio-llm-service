@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 
 import { LIMITS, TERMINAL_JOB_STATUSES, type ContextRevision } from '@talvio/llm-contracts';
 
+import { contentHash } from '../hash';
 import {
   IdempotencyConflictError,
   type ContextInput,
@@ -215,7 +216,7 @@ export function createMemoryStore(): MemoryStore {
         const set = questionSets.get(questionSetId);
         return session && set?.sessionId === sessionId ? set : null;
       },
-      async addAnswers({ ownerId, sessionId, baseContextRevisionId, now }) {
+      async addAnswers({ ownerId, sessionId, baseContextRevisionId, answersHash, now }) {
         const session = owned(sessions.get(sessionId), ownerId);
         if (!session) {
           return null;
@@ -226,6 +227,7 @@ export function createMemoryStore(): MemoryStore {
         session.latestContext = {
           ...session.latestContext,
           contextRevisionId: randomUUID(),
+          contextHash: contentHash({ previous: session.latestContext.contextHash, answersHash }),
           answerRevisionId: randomUUID(),
           createdAt: now.toISOString(),
         };

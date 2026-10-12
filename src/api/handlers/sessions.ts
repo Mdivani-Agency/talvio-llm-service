@@ -92,10 +92,21 @@ export const deleteSession: RouteHandler = async (request, deps) => {
 };
 
 export const createContext: RouteHandler = async (request, deps) => {
+  const ownerId = userOf(request);
+  const sessionId = request.params.sessionId ?? '';
   const body = parseWith(createContextRequestSchema, request.body);
+  const session = await deps.store.sessions.get(ownerId, sessionId);
+  if (!session) {
+    throw notFound();
+  }
+  if (session.purpose === 'tailor' && !body.jobDescription) {
+    throw new ApiError('invalid_request', {
+      issues: [{ path: 'jobDescription', message: 'Required for tailoring.' }],
+    });
+  }
   const context = await deps.store.sessions.addContext({
-    ownerId: userOf(request),
-    sessionId: request.params.sessionId ?? '',
+    ownerId,
+    sessionId,
     baseContextRevisionId: body.baseContextRevisionId,
     context: contextInput(body.source, body.jobDescription),
     now: request.now,
@@ -109,9 +120,17 @@ export const submitAnswers: RouteHandler = async (request, deps) => {
   const sessionId = request.params.sessionId ?? '';
   const body = parseWith(submitAnswersRequestSchema, request.body);
 
+  const session = await deps.store.sessions.get(ownerId, sessionId);
   const set = await deps.store.sessions.getQuestionSet(ownerId, sessionId, body.questionSetId);
-  if (!set) {
+  if (!session || !set) {
     throw notFound();
+  }
+  // Questions issued for an earlier source or job description cannot be answered any more.
+  if (
+    set.sourceHash !== session.latestContext.sourceHash ||
+    set.jobDescriptionHash !== session.latestContext.jobDescriptionHash
+  ) {
+    throw new ApiError('stale_context');
   }
   const issued = new Set(set.questions.map((question) => question.id));
   const ids = body.answers.map((answer) => answer.questionId);
@@ -128,6 +147,7 @@ export const submitAnswers: RouteHandler = async (request, deps) => {
     baseContextRevisionId: body.baseContextRevisionId,
     questionSetId: body.questionSetId,
     answers: body.answers,
+    answersHash: contentHash({ questionSetId: body.questionSetId, answers: body.answers }),
     now: request.now,
   });
   return { status: 201, body: staleOrMissing(context) };

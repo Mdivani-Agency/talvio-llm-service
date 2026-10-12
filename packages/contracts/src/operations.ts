@@ -157,14 +157,19 @@ export const tailorResumeInputSchema = z.strictObject({
   resumeName: shortTextSchema.min(1),
 });
 
-export const tailorResumeResultSchema = z.strictObject({
-  /** `proposal.document` holds the composed resume; `applyTarget` is always a new resume. */
-  proposal: proposalSchema,
-  requirements: z.array(requirementSchema).max(50),
-  coverage: z.array(requirementCoverageSchema).max(50),
-  /** Requirements the candidate's evidence does not support; never invented. */
-  unsupportedRequirementIds: z.array(stableIdSchema).max(50),
-});
+export const tailorResumeResultSchema = z
+  .strictObject({
+    /** `proposal.document` holds the composed resume; `applyTarget` is always a new resume. */
+    proposal: proposalSchema,
+    requirements: z.array(requirementSchema).max(50),
+    coverage: z.array(requirementCoverageSchema).max(50),
+    /** Requirements the candidate's evidence does not support; never invented. */
+    unsupportedRequirementIds: z.array(stableIdSchema).max(50),
+  })
+  .refine((result) => result.proposal.document !== null, {
+    message: 'a tailoring proposal carries the composed document',
+    path: ['proposal', 'document'],
+  });
 
 export const operationInputSchemas = {
   parse_document: parseDocumentInputSchema,
