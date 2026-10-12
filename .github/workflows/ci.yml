@@ -5,13 +5,27 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy to dev after the checks pass
+        type: boolean
+        default: false
+
+concurrency:
+  group: llm-service-${{ github.ref_name }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-west-1
+  SLS_DISABLE_AUTO_UPDATE: '1'
 
 jobs:
-  contracts:
-    name: contracts
+  check:
+    name: lint + typecheck + test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,7 +36,47 @@ jobs:
         run: corepack enable
       - name: Install
         run: yarn install --immutable
+      - name: Lint
+        run: yarn lint
       - name: Typecheck
+        run: yarn typecheck
+      - name: Test service
+        run: yarn test --coverage
+      - name: Typecheck contracts
         run: yarn workspace @talvio/llm-contracts typecheck
-      - name: Test
-        run: yarn workspace @talvio/llm-contracts test
+      - name: Test contracts
+        run: yarn test:contracts
+
+  # Manual until MDI-213 provisions the service's infrastructure. Every route except health
+  # answers 503 until the Supabase store lands (MDI-214).
+  deploy-dev:
+    name: deploy (dev)
+    needs: check
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
+      SERVERLESS_LICENSE_KEY: ${{ secrets.SERVERLESS_LICENSE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Enable Yarn
+        run: corepack enable
+      - name: Install
+        run: yarn install --immutable
+      - name: Skip deploy (no AWS_DEPLOY_ROLE_ARN)
+        if: env.ROLE_ARN == ''
+        run: echo "Set the dev environment variable AWS_DEPLOY_ROLE_ARN (SSM /dev/ci/deploy-role-arn)." >> "$GITHUB_STEP_SUMMARY"
+      - name: Configure AWS (OIDC)
+        if: env.ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Deploy
+        if: env.ROLE_ARN != ''
+        run: yarn sls deploy --stage dev --verbose
