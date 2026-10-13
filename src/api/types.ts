@@ -1,6 +1,7 @@
-import type { AuthContext } from '@lib/auth';
 import type { Logger } from '@lib/log';
 import type { Store } from '@lib/store';
+
+import type { AuthContext } from './authorizer';
 
 export type HttpMethod = 'GET' | 'POST' | 'DELETE';
 
@@ -33,7 +34,7 @@ export type Route = {
   method: HttpMethod;
   /** API Gateway resource path below the `llm` base path, e.g. `/v1/jobs/{jobId}`. */
   path: string;
-  /** Public routes skip authentication. Only /v1/health is public. */
+  /** Public routes have no authorizer. Only /v1/health is public. */
   public?: boolean;
   handler: RouteHandler;
 };

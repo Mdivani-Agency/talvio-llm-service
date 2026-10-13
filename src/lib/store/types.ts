@@ -189,13 +189,7 @@ export interface SessionStore {
   delete(ownerId: string, sessionId: string): Promise<boolean>;
 }
 
-export interface AccountStore {
-  /** False for deleted or revoked accounts, even while their tokens have not expired. */
-  isActive(userId: string): Promise<boolean>;
-}
-
 export type Store = {
-  accounts: AccountStore;
   jobs: JobStore;
   documents: DocumentStore;
   uploads: UploadGrants;

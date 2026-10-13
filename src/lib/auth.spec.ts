@@ -38,6 +38,17 @@ describe('createTokenVerifier', () => {
     expect(auth.expiresAt.getTime()).toBeGreaterThan(Date.now());
   });
 
+  it('reads the account_status and plan claims without judging them', async () => {
+    const auth = await verify(
+      `Bearer ${await token({ key, accountStatus: 'suspended', plan: 'pro' })}`,
+    );
+    expect(auth).toMatchObject({ accountStatus: 'suspended', plan: 'pro' });
+    const bare = await verify(
+      `Bearer ${await token({ key, accountStatus: null, plan: null, extra: { plan: 7 } })}`,
+    );
+    expect(bare).toMatchObject({ accountStatus: null, plan: null });
+  });
+
   it.each([
     ['no header', undefined],
     ['an empty header', ''],

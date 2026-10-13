@@ -2,15 +2,14 @@ import { randomUUID } from 'crypto';
 
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 
-import type { TokenVerifier } from '@lib/auth';
-import { ApiError, unauthorized } from '@lib/errors';
+import { ApiError } from '@lib/errors';
 import { userRef, type LogFields } from '@lib/log';
 
+import { readAuthContext } from './authorizer';
 import { ROUTES } from './routes';
 import type { Deps, Route, RouteRequest, RouteResult } from './types';
 
 export type AppDeps = Deps & {
-  verifyToken: TokenVerifier;
   maxBodyBytes: number;
   now?: () => Date;
 };
@@ -114,12 +113,9 @@ export function createApp(deps: AppDeps) {
       }
       let auth: RouteRequest['auth'] = null;
       if (!route.public) {
-        auth = await deps.verifyToken(headers.authorization);
+        // The API Gateway authorizer has verified the token, account status and plan.
+        auth = readAuthContext(event);
         log.user = userRef(auth.userId);
-        // A still-valid token of a deleted or revoked account is refused.
-        if (!(await deps.store.accounts.isActive(auth.userId))) {
-          throw unauthorized();
-        }
       }
       result = await route.handler(
         {

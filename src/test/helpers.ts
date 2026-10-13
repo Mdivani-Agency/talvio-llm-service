@@ -1,10 +1,13 @@
 import { randomUUID } from 'crypto';
 
-import type { APIGatewayProxyEvent } from 'aws-lambda';
+import type { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import * as jose from 'jose';
 
 import { createApp } from '../api/app';
-import { createTokenVerifier } from '../lib/auth';
+import { UNAUTHORIZED, createAuthorizer } from '../api/authorizer';
+import { GATEWAY_ERRORS, GATEWAY_HEADERS, gatewayBody } from '../api/gateway-responses';
+import { ROUTE_TABLE } from '../api/route-table';
+import { createTokenVerifier, type TokenVerifier } from '../lib/auth';
 import { createLogger } from '../lib/log';
 import { createMemoryStore, type MemoryStore } from '../lib/store/memory';
 import type { Store } from '../lib/store';
@@ -31,6 +34,9 @@ export async function signingKey(alg: 'ES256' | 'RS256' = 'ES256'): Promise<Sign
 export type TokenOptions = {
   key: SigningKey;
   sub?: string | null;
+  /** Claims from the web's access-token hook; null leaves the claim out. */
+  accountStatus?: string | null;
+  plan?: string | null;
   iss?: string;
   aud?: string;
   role?: string;
@@ -43,6 +49,8 @@ export type TokenOptions = {
 export async function token({
   key,
   sub = USER_A,
+  accountStatus = 'active',
+  plan = 'free',
   iss = ISSUER,
   aud = 'authenticated',
   role = 'authenticated',
@@ -55,6 +63,8 @@ export async function token({
     role,
     is_anonymous: isAnonymous,
     session_id: randomUUID(),
+    ...(accountStatus === null ? {} : { account_status: accountStatus }),
+    ...(plan === null ? {} : { plan }),
     ...extra,
   })
     .setProtectedHeader({ alg: key.alg, kid: key.kid })
@@ -109,30 +119,86 @@ export function event(
 }
 
 export type TestApp = {
-  handle: ReturnType<typeof createApp>;
+  /** The function behind a stand-in for API Gateway: the authorizer runs first, as deployed. */
+  handle(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult>;
   store: MemoryStore;
   key: SigningKey;
   logs: string[];
   tokenFor(userId: string, options?: Partial<TokenOptions>): Promise<string>;
 };
 
+const PUBLIC_RESOURCES = new Set<string>(
+  ROUTE_TABLE.filter((route) => 'public' in route && route.public).map((route) => route.path),
+);
+
+function gatewayError(type: keyof typeof GATEWAY_ERRORS, requestId: string) {
+  return {
+    statusCode: GATEWAY_ERRORS[type].status,
+    headers: GATEWAY_HEADERS,
+    body: gatewayBody(type, requestId),
+  };
+}
+
 export async function testApp(
-  options: { store?: Store; maxBodyBytes?: number } = {},
+  options: { store?: Store; maxBodyBytes?: number; verifyToken?: TokenVerifier } = {},
 ): Promise<TestApp> {
   const key = await signingKey();
   const logs: string[] = [];
   const store = createMemoryStore();
-  const handle = createApp({
+  const logger = createLogger('debug', (line) => logs.push(line));
+  const app = createApp({
     store: options.store ?? store,
-    logger: createLogger('debug', (line) => logs.push(line)),
-    verifyToken: createTokenVerifier({
-      SUPABASE_URL,
-      SUPABASE_JWT_AUDIENCE: 'authenticated',
-      SUPABASE_JWT_ALGORITHMS: ['ES256', 'RS256'],
-      keys: jose.createLocalJWKSet({ keys: [key.jwk] }),
-    }),
+    logger,
     maxBodyBytes: options.maxBodyBytes ?? 1_000_000,
   });
+  const authorize = createAuthorizer({
+    logger,
+    verifyToken:
+      options.verifyToken ??
+      createTokenVerifier({
+        SUPABASE_URL,
+        SUPABASE_JWT_AUDIENCE: 'authenticated',
+        SUPABASE_JWT_ALGORITHMS: ['ES256', 'RS256'],
+        keys: jose.createLocalJWKSet({ keys: [key.jwk] }),
+      }),
+  });
+
+  // Mirrors the deployed API: no authorizer on public routes; a missing Authorization header
+  // never reaches the authorizer; the authorizer's context reaches the function.
+  const handle = async (request: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
+    const requestId = request.requestContext.requestId;
+    if (PUBLIC_RESOURCES.has(request.resource.replace(/^\/llm(?=\/)/, ''))) {
+      return app(request);
+    }
+    const header = Object.entries(request.headers).find(
+      ([name]) => name.toLowerCase() === 'authorization',
+    )?.[1];
+    if (!header) {
+      return gatewayError('UNAUTHORIZED', requestId);
+    }
+    let result;
+    try {
+      result = await authorize({
+        type: 'TOKEN',
+        authorizationToken: header,
+        methodArn: `arn:aws:execute-api:us-west-1:000000000000:api/test/${request.httpMethod}${request.resource}`,
+      });
+    } catch (error) {
+      const unauthorized = error instanceof Error && error.message === UNAUTHORIZED;
+      return gatewayError(unauthorized ? 'UNAUTHORIZED' : 'AUTHORIZER_FAILURE', requestId);
+    }
+    if (result.policyDocument.Statement.some((statement) => statement.Effect !== 'Allow')) {
+      return gatewayError('ACCESS_DENIED', requestId);
+    }
+    return app({
+      ...request,
+      requestContext: {
+        ...request.requestContext,
+        authorizer: { principalId: result.principalId, ...result.context },
+      },
+    });
+  };
+
   return {
     handle,
     store,

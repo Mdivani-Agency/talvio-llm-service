@@ -21,7 +21,6 @@ const UPLOAD_GRANT_TTL_MS = 5 * 60 * 1000;
 export type MemoryStore = Store & {
   /** Test and local helpers; not part of the Store interface. */
   testing: {
-    deactivate(userId: string): void;
     setJob(jobId: string, patch: Partial<JobRecord>): void;
     setDocument(documentId: string, patch: Partial<DocumentRecord>): void;
     addQuestionSet(set: Omit<QuestionSetRecord, 'questionSetId'>): QuestionSetRecord;
@@ -30,7 +29,6 @@ export type MemoryStore = Store & {
 
 /** In-process store for tests and `sls offline`. Config forbids it outside local and test. */
 export function createMemoryStore(): MemoryStore {
-  const inactive = new Set<string>();
   const jobs = new Map<string, JobRecord>();
   const documents = new Map<string, DocumentRecord>();
   const sessions = new Map<string, SessionRecord>();
@@ -50,12 +48,6 @@ export function createMemoryStore(): MemoryStore {
   });
 
   return {
-    accounts: {
-      async isActive(userId) {
-        return !inactive.has(userId);
-      },
-    },
-
     jobs: {
       async findByIdempotencyKey(ownerId, idempotencyKey) {
         return (
@@ -239,9 +231,6 @@ export function createMemoryStore(): MemoryStore {
     },
 
     testing: {
-      deactivate(userId) {
-        inactive.add(userId);
-      },
       setJob(jobId, patch) {
         const job = jobs.get(jobId);
         if (job) {

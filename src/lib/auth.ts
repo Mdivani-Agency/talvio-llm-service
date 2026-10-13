@@ -8,21 +8,27 @@ import { ApiError, unauthorized } from './errors';
  * Independent verification of Supabase access tokens (design §6). Checks signature against the
  * project's published signing keys (JWKS, so key rotation needs no deploy), issuer, audience,
  * allowed asymmetric algorithms, expiry, subject and role, and rejects anonymous users.
- * user_metadata is never read: users can edit it.
+ * user_metadata is never read: users can edit it. The API Gateway authorizer (src/api/authorizer.ts)
+ * runs this and then decides on the `account_status` and `plan` claims.
  */
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 /** Small allowance for clock skew between Supabase and Lambda. */
 const CLOCK_TOLERANCE_SECONDS = 30;
 
-export type AuthContext = {
+export type VerifiedToken = {
   userId: string;
   /** Supabase auth session id, when the token carries one. */
   sessionId: string | null;
   expiresAt: Date;
+  /** Top-level claims set by the web's custom access-token hook; null when absent. */
+  accountStatus: string | null;
+  plan: string | null;
 };
 
-export type TokenVerifier = (authorizationHeader: string | undefined) => Promise<AuthContext>;
+export type TokenVerifier = (authorizationHeader: string | undefined) => Promise<VerifiedToken>;
+
+const stringClaim = (value: unknown): string | null => (typeof value === 'string' ? value : null);
 
 type VerifierOptions = Pick<
   Config,
@@ -40,7 +46,7 @@ function bearerToken(header: string | undefined): string {
   return match[1];
 }
 
-function checkClaims(payload: JWTPayload): AuthContext {
+function checkClaims(payload: JWTPayload): VerifiedToken {
   const sub = payload.sub;
   if (!sub || !UUID_RE.test(sub)) {
     throw unauthorized();
@@ -51,8 +57,13 @@ function checkClaims(payload: JWTPayload): AuthContext {
   if (payload.is_anonymous === true) {
     throw unauthorized('Create an account to use AI features.');
   }
-  const sessionId = typeof payload.session_id === 'string' ? payload.session_id : null;
-  return { userId: sub.toLowerCase(), sessionId, expiresAt: new Date((payload.exp ?? 0) * 1000) };
+  return {
+    userId: sub.toLowerCase(),
+    sessionId: stringClaim(payload.session_id),
+    expiresAt: new Date((payload.exp ?? 0) * 1000),
+    accountStatus: stringClaim(payload.account_status),
+    plan: stringClaim(payload.plan),
+  };
 }
 
 export function createTokenVerifier(options: VerifierOptions): TokenVerifier {
