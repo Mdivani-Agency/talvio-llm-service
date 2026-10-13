@@ -23,7 +23,7 @@ yarn generate    # rebuild generated/ after changing a schema; commit the result
 
 The schemas are the source of truth. `generated/` is derived from them and checked by `test/generated.spec.ts`, so a schema change without `yarn generate` fails the tests. JSON Schema cannot express the cross-field rules (for example "a succeeded job has a result"). Those run only in the Zod validators, so JSON Schema consumers accept slightly more than the service does.
 
-The package is not published yet. How talvio-web-app consumes it (GitHub Packages, a git dependency or a vendored build) is decided in [MDI-221](https://linear.app/mdivani/issue/MDI-221). Until then the web can copy `generated/` or run the fixtures against its own adapters.
+**How talvio-web-app uses it (decided 12 Oct 2026):** the web treats this service like any third-party API. It implements its own client from this document, `generated/openapi.json` and `generated/schemas/*.json`. There is no shared package dependency and no copy script, which is why this document is the authoritative description. Publishing the package to npm is deferred to [MDI-439](https://linear.app/mdivani/issue/MDI-439).
 
 ## Shape of the API
 
@@ -59,7 +59,7 @@ Every result comes in an envelope with `jobId`, `schemaVersion`, `inputHash`, `c
 
 | Operation | Source | Apply target |
 | -- | -- | -- |
-| `improve_profile` | profile | `profile` at `baseRevision` |
+| `improve_profile` | profile | `profile`; `baseRevision` is recorded but not enforced in v1 (last-write-wins) |
 | `improve_resume` | draft resume | `resume_draft` at `baseRevision` |
 | `improve_resume` | generated resume | `resume_draft_family`: save into the generated resume's one open draft; the generated row is never modified |
 | `tailor_resume` | any | `new_resume` with `resumeType: job_specific` and `derivedFrom`; not part of the source's draft family (`source_resume_id` stays reserved for drafts of generated resumes) |
@@ -98,8 +98,18 @@ Mapped against talvio-web-app `development` @ `6ced44c` (the design's review com
 
 A breaking change ships as a new major path next to the old one, never in place.
 
+## Service boundary
+
+Decided 12 Oct 2026 ([MDI-181](https://linear.app/mdivani/issue/MDI-181)):
+
+- **Self-contained data.** The service keeps all of its state in its own DynamoDB tables and private S3 buckets, which Terraform owns. It never reads or writes the web app's Supabase database.
+- **Authorization from token claims.** An API Gateway authorizer verifies the Supabase access token and reads the `account_status` and `plan` claims, which a custom-access-token hook in talvio-web-app adds ([MDI-440](https://linear.app/mdivani/issue/MDI-440)). Tokens live 15 minutes, so a suspended account or a plan change takes effect within one token lifetime.
+- **Per-user limits by plan.** AI limits are resolved per user from `plan` plus overrides and enforced by the service's own quota store. They replace the web's `ai_daily_usage` cap at cutover.
+- **Deletion by retention.** There is no account-deletion call. Service data ages out through TTL and lifecycle rules: 24 h for incomplete uploads, 7 days for files and for every result payload (accepted or not), 30 days for content-free job metadata. The service is never told that a proposal was accepted: the web copies accepted content and its provenance into its own tables when it applies it, so a result's expiry never loses accepted content.
+- **Apply stays in the web.** Accepted proposals are saved by a Postgres function in the web app, atomically with the apply receipt ([MDI-222](https://linear.app/mdivani/issue/MDI-222)).
+
 ## Known gaps
 
-- **Profiles have no revision token.** `save_profile` is an unconditional upsert. The contract requires a `revision`; until a profile revision column exists (MDI-214/MDI-222), the web can only send `updated_at`, and the profile apply path cannot detect a concurrent edit.
-- **Contract tests in the web repo** depend on how the package is consumed (MDI-221). The fixtures and JSON Schemas are ready for it.
+- **No profile concurrency check in v1 (accepted).** `save_profile` is an unconditional upsert and profiles have no revision token. The web sends the profile's `updated_at` as `revision`, but applying a profile proposal is last-write-wins and can overwrite a concurrent edit. Resumes are revision-checked.
+- **Web contract tests** run against the web app's own client, using the fixtures in `fixtures/` as reference payloads.
 - **Language, guardrail and OCR behavior** are represented only as error codes and warnings. Their policies arrive with MDI-216/MDI-217.

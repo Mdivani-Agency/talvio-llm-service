@@ -15,8 +15,8 @@ import type {
 /*
  * Persistence boundary of the API. Every read and write is scoped by `ownerId`: a record owned
  * by someone else is indistinguishable from a missing one, so ownership cannot be skipped by a
- * handler. The Supabase implementation (private llm schema, MDI-214) replaces the memory and
- * unconfigured stores without changing these interfaces.
+ * handler. The DynamoDB implementation (MDI-214; tables owned by Terraform, MDI-213) replaces the
+ * memory and unconfigured stores without changing these interfaces.
  */
 
 export type JobStage =

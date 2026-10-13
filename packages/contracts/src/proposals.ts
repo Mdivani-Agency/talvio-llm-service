@@ -187,7 +187,8 @@ export const omissionSchema = z.strictObject({
 /*
  * Where an accepted proposal is saved. The web owns the write (design §12); workers never
  * write canonical data.
- * - `profile`: update the profile at `baseRevision`.
+ * - `profile`: update the profile. `baseRevision` is recorded for provenance; v1 does not
+ *   enforce it (profile apply is last-write-wins).
  * - `resume_draft`: update a mutable resume at `baseRevision`.
  * - `resume_draft_family`: the source is a generated (immutable) resume; save into its one
  *   open draft, creating it if needed. The generated resume itself is never modified.
