@@ -16,7 +16,7 @@ yarn workspace @talvio/llm-contracts generate   # after changing a contract sche
 ## Rules
 
 - Contract changes go in `packages/contracts` first; run `generate` and commit `generated/`. Breaking changes need a new major version (see docs/contracts.md).
-- A route exists only if it is in `src/api/route-table.ts`. Only health is public.
+- A route exists only if it is in `src/api/route-table.ts`. Only health is public; every other route goes through the API Gateway authorizer (`src/api/authorizer.ts`), and handlers read the user from `request.auth`, never from the token.
 - Handlers use the owner-scoped store interfaces in `src/lib/store/types.ts`; never query by id without the owner.
 - Never log request bodies, tokens, document text or the message of an unknown error. Use `LogFields`; add a field only if it is content-free. `no-console` is enforced.
 - Validation errors carry paths and generic messages only (`src/lib/validation.ts`).

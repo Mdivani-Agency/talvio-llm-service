@@ -6,13 +6,13 @@ The contract between talvio-web-app and talvio-llm-service: what the web sends, 
 
 `packages/contracts` is a Yarn workspace in this repository.
 
-| Path | Contents |
-| -- | -- |
-| `src/` | Zod 4 schemas, inferred TypeScript types and small pure helpers (`applyTargetFor`, `checkApplySelection`, `canonicalJson`, `legacyAccountToCareer`) |
-| `generated/openapi.json` | OpenAPI 3.1 document for `/llm/v1`, generated from the schemas |
-| `generated/schemas/*.json` | Standalone JSON Schema (draft 2020-12) for each top-level request and response |
-| `fixtures/valid`, `fixtures/invalid` | Payloads that must parse or must be rejected |
-| `fixtures/legacy` | Payloads the current web AI routes exchange today |
+| Path                                 | Contents                                                                                                                                            |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/`                               | Zod 4 schemas, inferred TypeScript types and small pure helpers (`applyTargetFor`, `checkApplySelection`, `canonicalJson`, `legacyAccountToCareer`) |
+| `generated/openapi.json`             | OpenAPI 3.1 document for `/llm/v1`, generated from the schemas                                                                                      |
+| `generated/schemas/*.json`           | Standalone JSON Schema (draft 2020-12) for each top-level request and response                                                                      |
+| `fixtures/valid`, `fixtures/invalid` | Payloads that must parse or must be rejected                                                                                                        |
+| `fixtures/legacy`                    | Payloads the current web AI routes exchange today                                                                                                   |
 
 ```bash
 cd packages/contracts
@@ -33,14 +33,14 @@ Base path `https://api.<stage>.talvio.co/llm/v1`. Browsers call the same-origin 
 - **Sessions:** `POST /sessions` binds one improve or tailor journey to a source snapshot and an optional job description. `POST /sessions/{id}/contexts` and `POST /sessions/{id}/answers` each create a new immutable context revision.
 - **Jobs:** `POST /jobs` (header `Idempotency-Key`, equal to `clientRequestId`) → `202 JobAccepted`; poll `GET /jobs/{id}`; `POST /jobs/{id}/cancel|retry`; `GET /jobs?cursor=`.
 
-| Operation | Input | Result | Session |
-| -- | -- | -- | -- |
-| `parse_document` | Pasted or browser-extracted text with an optional page manifest, or a ready `documentId` | Partial `CareerDocument`, fact ledger with evidence, uncertainties, extraction coverage | No |
-| `analyze_resume` | Sections | Findings, JD requirements, requirement-coverage matrix, priorities | Yes |
-| `generate_questions` | Round, max questions, optional analysis job | Question set: 0–5 questions with stable ids, topic keys, reasons | Yes |
-| `improve_profile` | Sections, optional target role | Proposal applied to the profile | Yes |
-| `improve_resume` | Sections, optional target role | Proposal applied to the resume or its draft family | Yes |
-| `tailor_resume` | New resume name | Proposal for a new JOB_SPECIFIC resume, requirement coverage, unsupported requirements | Yes |
+| Operation            | Input                                                                                    | Result                                                                                  | Session |
+| -------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ------- |
+| `parse_document`     | Pasted or browser-extracted text with an optional page manifest, or a ready `documentId` | Partial `CareerDocument`, fact ledger with evidence, uncertainties, extraction coverage | No      |
+| `analyze_resume`     | Sections                                                                                 | Findings, JD requirements, requirement-coverage matrix, priorities                      | Yes     |
+| `generate_questions` | Round, max questions, optional analysis job                                              | Question set: 0–5 questions with stable ids, topic keys, reasons                        | Yes     |
+| `improve_profile`    | Sections, optional target role                                                           | Proposal applied to the profile                                                         | Yes     |
+| `improve_resume`     | Sections, optional target role                                                           | Proposal applied to the resume or its draft family                                      | Yes     |
+| `tailor_resume`      | New resume name                                                                          | Proposal for a new JOB_SPECIFIC resume, requirement coverage, unsupported requirements  | Yes     |
 
 Every result comes in an envelope with `jobId`, `schemaVersion`, `inputHash`, `contextRevisionId`/`contextHash`, `sourceRevision`, pipeline/prompt/model versions, `resultKind` (`complete` or `partial`) and `warnings`. The web compares these bindings with its current state to detect stale results.
 
@@ -57,12 +57,12 @@ Every result comes in an envelope with `jobId`, `schemaVersion`, `inputHash`, `c
 
 `applyTargetFor(operation, source)` is the only mapping from a source to where an accepted proposal is saved. A result with any other `applyTarget` is invalid.
 
-| Operation | Source | Apply target |
-| -- | -- | -- |
-| `improve_profile` | profile | `profile`; `baseRevision` is recorded but not enforced in v1 (last-write-wins) |
-| `improve_resume` | draft resume | `resume_draft` at `baseRevision` |
-| `improve_resume` | generated resume | `resume_draft_family`: save into the generated resume's one open draft; the generated row is never modified |
-| `tailor_resume` | any | `new_resume` with `resumeType: job_specific` and `derivedFrom`; not part of the source's draft family (`source_resume_id` stays reserved for drafts of generated resumes) |
+| Operation         | Source           | Apply target                                                                                                                                                              |
+| ----------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `improve_profile` | profile          | `profile`; `baseRevision` is recorded but not enforced in v1 (last-write-wins)                                                                                            |
+| `improve_resume`  | draft resume     | `resume_draft` at `baseRevision`                                                                                                                                          |
+| `improve_resume`  | generated resume | `resume_draft_family`: save into the generated resume's one open draft; the generated row is never modified                                                               |
+| `tailor_resume`   | any              | `new_resume` with `resumeType: job_specific` and `derivedFrom`; not part of the source's draft family (`source_resume_id` stays reserved for drafts of generated resumes) |
 
 The apply request and receipt (`applyRequestSchema`, `applyReceiptSchema`) are executed by the web in its own transaction ([MDI-222](https://linear.app/mdivani/issue/MDI-222)). `checkApplySelection` rejects a selection that names unknown changes or omissions, misses a required claim confirmation, targets something else, or creates a resume without a stable `clientDraftId`. PDF generation and credits are untouched: no operation renders a PDF or debits credits.
 
@@ -70,12 +70,12 @@ The apply request and receipt (`applyRequestSchema`, `applyReceiptSchema`) are e
 
 Mapped against talvio-web-app `development` @ `6ced44c` (the design's review commit `083ccee` is older; XState is gone and Improve with AI lives in the resume editor since then). `LEGACY_ROUTES` holds the same table in code.
 
-| Route today | Callers | Replacement | What changes |
-| -- | -- | -- | -- |
-| `POST /api/resume/parse` `{resume}` → ParsedAccount as a JSON string | `hooks/use-resume-parser.ts` (onboarding and import page) | `parse_document` | Typed result with evidence, uncertainties and coverage; never double-encoded. Guessed `isPresent` dates disappear. |
-| `POST /api/resume/qa` `{resume}` → `{questions: [{question, example}]}` | `app/resume/hooks/use-ai-improve.ts` | session + `generate_questions` | Server-issued question ids, topic keys and reasons; answers keyed by id |
-| `POST /api/resume/account` `{account, questions[], answers[]}` → whole account | `app/resume/hooks/use-ai-improve.ts` | `improve_resume` / `improve_profile` | Field-level changes with preconditions replace position matching in `applyAiProposal` |
-| `POST /api/resume/complete` | none in the UI (e2e access/cap specs only) | none | Retire; job-specific drafting is `tailor_resume` |
+| Route today                                                                    | Callers                                                   | Replacement                          | What changes                                                                                                       |
+| ------------------------------------------------------------------------------ | --------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `POST /api/resume/parse` `{resume}` → ParsedAccount as a JSON string           | `hooks/use-resume-parser.ts` (onboarding and import page) | `parse_document`                     | Typed result with evidence, uncertainties and coverage; never double-encoded. Guessed `isPresent` dates disappear. |
+| `POST /api/resume/qa` `{resume}` → `{questions: [{question, example}]}`        | `app/resume/hooks/use-ai-improve.ts`                      | session + `generate_questions`       | Server-issued question ids, topic keys and reasons; answers keyed by id                                            |
+| `POST /api/resume/account` `{account, questions[], answers[]}` → whole account | `app/resume/hooks/use-ai-improve.ts`                      | `improve_resume` / `improve_profile` | Field-level changes with preconditions replace position matching in `applyAiProposal`                              |
+| `POST /api/resume/complete`                                                    | none in the UI (e2e access/cap specs only)                | none                                 | Retire; job-specific drafting is `tailor_resume`                                                                   |
 
 `legacyAccountToCareer` converts today's account-shaped payload (`documentToAiPayload`, parse output) into a `CareerDocument`, and `fixtures/legacy` pins those payloads. Together they show the current flow fits the contract and give MDI-221 a starting adapter.
 
@@ -88,13 +88,13 @@ Mapped against talvio-web-app `development` @ `6ced44c` (the design's review com
 
 ## Rollout ownership
 
-| Change | Owner | Order |
-| -- | -- | -- |
-| Schemas, fixtures, generated OpenAPI | talvio-llm-service (`packages/contracts`) | First, reviewed with both repos in mind |
-| Service accepting a new minor | talvio-llm-service | Deployed before any web build sends it |
-| Web adapters, `/api/llm` proxy, review/apply UI | talvio-web-app ([MDI-221](https://linear.app/mdivani/issue/MDI-221), [MDI-222](https://linear.app/mdivani/issue/MDI-222)) | After the service accepts the version |
-| Apply transaction, receipts, provenance tables | talvio-web-app (Supabase migrations) | With MDI-214/MDI-222 |
-| Removing legacy routes and the OpenAI SDK | talvio-web-app ([MDI-224](https://linear.app/mdivani/issue/MDI-224)) | After parity on the new routes |
+| Change                                          | Owner                                                                                                                     | Order                                   |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Schemas, fixtures, generated OpenAPI            | talvio-llm-service (`packages/contracts`)                                                                                 | First, reviewed with both repos in mind |
+| Service accepting a new minor                   | talvio-llm-service                                                                                                        | Deployed before any web build sends it  |
+| Web adapters, `/api/llm` proxy, review/apply UI | talvio-web-app ([MDI-221](https://linear.app/mdivani/issue/MDI-221), [MDI-222](https://linear.app/mdivani/issue/MDI-222)) | After the service accepts the version   |
+| Apply transaction, receipts, provenance tables  | talvio-web-app (Supabase migrations)                                                                                      | With MDI-214/MDI-222                    |
+| Removing legacy routes and the OpenAI SDK       | talvio-web-app ([MDI-224](https://linear.app/mdivani/issue/MDI-224))                                                      | After parity on the new routes          |
 
 A breaking change ships as a new major path next to the old one, never in place.
 
@@ -103,7 +103,7 @@ A breaking change ships as a new major path next to the old one, never in place.
 Decided 12 Oct 2026 ([MDI-181](https://linear.app/mdivani/issue/MDI-181)):
 
 - **Self-contained data.** The service keeps all of its state in its own DynamoDB tables and private S3 buckets, which Terraform owns. It never reads or writes the web app's Supabase database.
-- **Authorization from token claims.** An API Gateway authorizer verifies the Supabase access token and reads the `account_status` and `plan` claims, which a custom-access-token hook in talvio-web-app adds ([MDI-440](https://linear.app/mdivani/issue/MDI-440)). Tokens live 15 minutes, so a suspended account or a plan change takes effect within one token lifetime.
+- **Authorization from token claims.** An API Gateway authorizer verifies the Supabase access token and requires `account_status: active` and a known `plan`; a custom-access-token hook in talvio-web-app adds both claims ([MDI-440](https://linear.app/mdivani/issue/MDI-440)). Tokens live 15 minutes, so a suspended account or a plan change takes effect within one token lifetime. A refused token gets `401 unauthorized` (with "AI features are not available for this account." when the token is valid but the account or plan is not) and an authorizer failure gets `503 dependency_unavailable`, both in the usual error body. A new plan must be added to the service before the web issues it.
 - **Per-user limits by plan.** AI limits are resolved per user from `plan` plus overrides and enforced by the service's own quota store. They replace the web's `ai_daily_usage` cap at cutover.
 - **Deletion by retention.** There is no account-deletion call. Service data ages out through TTL and lifecycle rules: 24 h for incomplete uploads, 7 days for files and for every result payload (accepted or not), 30 days for content-free job metadata. The service is never told that a proposal was accepted: the web copies accepted content and its provenance into its own tables when it applies it, so a result's expiry never loses accepted content.
 - **Apply stays in the web.** Accepted proposals are saved by a Postgres function in the web app, atomically with the apply receipt ([MDI-222](https://linear.app/mdivani/issue/MDI-222)).

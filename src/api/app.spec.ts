@@ -1,7 +1,11 @@
 import { errorBodySchema } from '@talvio/llm-contracts';
 
+import { ApiError } from '../lib/errors';
+import { createLogger, userRef } from '../lib/log';
+import { createMemoryStore } from '../lib/store/memory';
 import { createUnconfiguredStore } from '../lib/store/unconfigured';
-import { USER_A, event, json, testApp, type TestApp } from '../test/helpers';
+import { USER_A, event, json, testApp, type TestApp, type TokenOptions } from '../test/helpers';
+import { createApp } from './app';
 import { ROUTE_TABLE } from './route-table';
 
 const SOME_ID = '33333333-3333-4333-8333-333333333333';
@@ -36,7 +40,7 @@ describe('authentication on every route', () => {
       expect(response.statusCode).toBe(401);
       const body = errorBodySchema.parse(json(response.body));
       expect(body.error.code).toBe('unauthorized');
-      expect(response.headers?.['X-Correlation-Id']).toBe(body.error.correlationId);
+      expect(body.error.message).toBe('Sign in to use AI features.');
     },
   );
 
@@ -48,12 +52,85 @@ describe('authentication on every route', () => {
     },
   );
 
-  it('refuses a valid token of a deleted account', async () => {
-    const { store, handle, tokenFor } = await testApp();
-    const valid = await tokenFor(USER_A);
-    expect((await handle(event('GET', '/v1/jobs', { token: valid }))).statusCode).toBe(200);
-    store.testing.deactivate(USER_A);
-    expect((await handle(event('GET', '/v1/jobs', { token: valid }))).statusCode).toBe(401);
+  it.each<[string, Partial<TokenOptions>]>([
+    ['a suspended account', { accountStatus: 'suspended' }],
+    ['a token without account_status', { accountStatus: null }],
+    ['a token without plan', { plan: null }],
+    ['an unknown plan', { plan: 'enterprise' }],
+  ])('refuses %s with a safe 401', async (_label, options) => {
+    const response = await app.handle(
+      event('GET', '/v1/jobs', { token: await app.tokenFor(USER_A, options) }),
+    );
+    expect(response.statusCode).toBe(401);
+    const body = errorBodySchema.parse(json(response.body));
+    expect(body.error).toMatchObject({
+      code: 'unauthorized',
+      message: 'AI features are not available for this account.',
+    });
+  });
+
+  it('answers 503 when the signing keys cannot be fetched', async () => {
+    const offline = await testApp({
+      verifyToken: async () => {
+        throw new ApiError('dependency_unavailable');
+      },
+    });
+    const response = await offline.handle(event('GET', '/v1/jobs', { token: 'x.y.z' }));
+    expect(response.statusCode).toBe(503);
+    expect(errorBodySchema.parse(json(response.body)).error).toMatchObject({
+      code: 'dependency_unavailable',
+      retryable: true,
+    });
+  });
+
+  it('passes the user from the authorizer context to the request', async () => {
+    const valid = await app.tokenFor(USER_A);
+    const created = await app.handle(event('POST', '/v1/sessions', { token: valid, body: {} }));
+    expect(created.statusCode).toBe(400);
+    expect(app.logs.at(-1)).toContain(`"user":"${userRef(USER_A)}"`);
+  });
+});
+
+describe('without the API Gateway authorizer', () => {
+  const direct = createApp({
+    store: createMemoryStore(),
+    logger: createLogger('error', () => undefined),
+    maxBodyBytes: 1_000_000,
+  });
+
+  it('refuses a protected route whose event has no authorizer context', async () => {
+    const response = await direct(event('GET', '/v1/jobs', { token: 'anything' }));
+    expect(response.statusCode).toBe(401);
+  });
+
+  it.each([
+    ['a non-uuid user', { userId: 'admin', plan: 'free', expiresAt: '2030-01-01T00:00:00Z' }],
+    ['an unknown plan', { userId: USER_A, plan: 'pro', expiresAt: '2030-01-01T00:00:00Z' }],
+    ['a bad expiry', { userId: USER_A, plan: 'free', expiresAt: 'soon' }],
+  ])('refuses an authorizer context with %s', async (_label, authorizer) => {
+    const request = event('GET', '/v1/jobs');
+    const response = await direct({
+      ...request,
+      requestContext: { ...request.requestContext, authorizer },
+    });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('accepts a well-formed authorizer context', async () => {
+    const request = event('GET', '/v1/jobs');
+    const response = await direct({
+      ...request,
+      requestContext: {
+        ...request.requestContext,
+        authorizer: {
+          userId: USER_A,
+          sessionId: '',
+          plan: 'free',
+          expiresAt: '2030-01-01T00:00:00Z',
+        },
+      },
+    });
+    expect(response.statusCode).toBe(200);
   });
 });
 
@@ -161,13 +238,17 @@ describe('failures stay safe', () => {
     expect(logs).toContain('"user":');
   });
 
-  it('answers 503 on every protected route until a store is configured', async () => {
+  it('answers 503 on every protected route that reaches the store until one is configured', async () => {
     const app = await testApp({ store: createUnconfiguredStore() });
     const auth = await app.tokenFor(USER_A);
     for (const route of ROUTE_TABLE.filter((item) => !('public' in item && item.public))) {
       const response = await app.handle(routeEvent(route, auth));
-      expect(response.statusCode).toBe(503);
-      expect(json(response.body)?.error.code).toBe('dependency_unavailable');
+      // POST routes get an empty body here, which validation refuses before any store call.
+      const expected = route.method === 'POST' ? [400, 503] : [503];
+      expect(expected).toContain(response.statusCode);
+      if (response.statusCode === 503) {
+        expect(json(response.body)?.error.code).toBe('dependency_unavailable');
+      }
     }
     expect((await app.handle(event('GET', '/v1/health'))).statusCode).toBe(200);
   });

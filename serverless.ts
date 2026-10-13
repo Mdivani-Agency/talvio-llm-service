@@ -1,5 +1,10 @@
 import type { AWS } from '@serverless/typescript';
 
+import {
+  GATEWAY_ERRORS,
+  GATEWAY_HEADERS,
+  type GatewayResponseType,
+} from './src/api/gateway-responses';
 import { ROUTE_TABLE } from './src/api/route-table';
 
 type ServerlessV4 = AWS & {
@@ -15,11 +20,54 @@ type ServerlessV4 = AWS & {
 
 /*
  * One Lambda serves every /llm/v1 route; API Gateway exposes only the routes in ROUTE_TABLE.
- * Authentication runs inside the function (Supabase JWT + active-account check), not in a
- * cached API Gateway authorizer, so a revoked account is refused immediately.
- * The function has no AWS permissions yet: it cannot call Bedrock, read artifacts or reach
- * queues. MDI-213 adds the scoped worker and storage roles.
+ * Every route except health goes through the `authorizer` Lambda (src/api/authorizer.ts),
+ * which verifies the Supabase access token and its account_status and plan claims. Its
+ * results are not cached, and its refusals use the contract's error shape (GATEWAY_ERRORS).
+ * Neither function has AWS permissions yet: MDI-213 adds the scoped worker and storage roles.
  */
+const AUTHORIZER = {
+  name: 'authorizer',
+  type: 'token',
+  identitySource: 'method.request.header.Authorization',
+  resultTtlInSeconds: 0,
+};
+
+const quoted = (value: string) => `'${value}'`;
+/** ACCESS_DENIED → AccessDenied, for CloudFormation logical ids. */
+const pascal = (type: string) =>
+  type
+    .toLowerCase()
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join('');
+
+const gatewayResponses = Object.fromEntries(
+  (Object.keys(GATEWAY_ERRORS) as GatewayResponseType[]).map((type) => {
+    const { status, code, message, retryable } = GATEWAY_ERRORS[type];
+    const body = JSON.stringify({ error: { code, message, retryable, correlationId: '@ID@' } });
+    return [
+      `GatewayResponse${pascal(type)}`,
+      {
+        Type: 'AWS::ApiGateway::GatewayResponse',
+        Properties: {
+          RestApiId: { Ref: 'ApiGatewayRestApi' },
+          ResponseType: type,
+          StatusCode: String(status),
+          ResponseParameters: Object.fromEntries(
+            Object.entries(GATEWAY_HEADERS).map(([name, value]) => [
+              `gatewayresponse.header.${name}`,
+              quoted(value),
+            ]),
+          ),
+          ResponseTemplates: {
+            'application/json': body.replace('"@ID@"', '"$context.requestId"'),
+          },
+        },
+      },
+    ];
+  }),
+);
+
 const serverlessConfiguration: ServerlessV4 = {
   service: 'llm-service',
   frameworkVersion: '4',
@@ -54,9 +102,22 @@ const serverlessConfiguration: ServerlessV4 = {
     api: {
       handler: 'src/handler.main',
       events: ROUTE_TABLE.map((route) => ({
-        http: { method: route.method.toLowerCase(), path: route.path.slice(1) },
+        http: {
+          method: route.method.toLowerCase(),
+          path: route.path.slice(1),
+          ...('public' in route && route.public ? {} : { authorizer: AUTHORIZER }),
+        },
       })),
     },
+    authorizer: {
+      handler: 'src/authorizer.main',
+      memorySize: 256,
+      timeout: 5,
+    },
+  },
+
+  resources: {
+    Resources: gatewayResponses,
   },
 
   plugins: ['serverless-offline', 'serverless-domain-manager'],

@@ -19,7 +19,7 @@ const configSchema = z
       .pipe(z.array(z.enum(['ES256', 'RS256', 'EdDSA'])).min(1)),
     /**
      * Where jobs, sessions and documents live. `unconfigured` answers every store call with
-     * 503 until the Supabase store lands (MDI-214). `memory` is for local runs and tests only.
+     * 503 until the DynamoDB store lands (MDI-214). `memory` is for local runs and tests only.
      */
     STORE_DRIVER: z.enum(['unconfigured', 'memory']).default('unconfigured'),
     /** Largest JSON request body accepted, in bytes. */

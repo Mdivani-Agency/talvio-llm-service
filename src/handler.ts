@@ -1,7 +1,6 @@
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 
 import { createApp } from './api/app';
-import { createTokenVerifier } from './lib/auth';
 import { ConfigError, loadConfig } from './lib/config';
 import { createLogger } from './lib/log';
 import { createStore } from './lib/store';
@@ -37,7 +36,6 @@ function build(): Handler {
     return createApp({
       store: createStore(config),
       logger: createLogger(config.LOG_LEVEL),
-      verifyToken: createTokenVerifier(config),
       maxBodyBytes: config.MAX_BODY_BYTES,
     });
   } catch (error) {
