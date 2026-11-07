@@ -23,7 +23,10 @@ type ServerlessV4 = AWS & {
  * Every route except health goes through the `authorizer` Lambda (src/api/authorizer.ts),
  * which verifies the Supabase access token and its account_status and plan claims. Its
  * results are not cached, and its refusals use the contract's error shape (GATEWAY_ERRORS).
- * Neither function has AWS permissions yet: MDI-213 adds the scoped worker and storage roles.
+ * Each function runs under a role Terraform owns (talvio-terraform-iac modules/llm), read from SSM
+ * /<stage>/llm/<role>-role-arn. The API role cannot call models; the worker role arrives with the worker
+ * functions (MDI-215). Tables, buckets, queues and KMS are Terraform-owned too, so this stack creates no
+ * IAM roles or stateful resources. Local runs use no role (serverless-offline ignores it).
  */
 const AUTHORIZER = {
   name: 'authorizer',
@@ -91,16 +94,12 @@ const serverlessConfiguration: ServerlessV4 = {
     apiGateway: {
       minimumCompressionSize: 1024,
     },
-    iam: {
-      role: {
-        statements: [],
-      },
-    },
   },
 
   functions: {
     api: {
       handler: 'src/handler.main',
+      role: '${self:custom.${self:provider.stage}.roles.api, ""}',
       events: ROUTE_TABLE.map((route) => ({
         http: {
           method: route.method.toLowerCase(),
@@ -111,6 +110,7 @@ const serverlessConfiguration: ServerlessV4 = {
     },
     authorizer: {
       handler: 'src/authorizer.main',
+      role: '${self:custom.${self:provider.stage}.roles.authorizer, ""}',
       memorySize: 256,
       timeout: 5,
     },
@@ -134,8 +134,22 @@ const serverlessConfiguration: ServerlessV4 = {
 
   custom: {
     local: { domainName: 'dev.talvio.co', storeDriver: 'memory', customDomainEnabled: false },
-    dev: { domainName: 'dev.talvio.co', storeDriver: 'unconfigured' },
-    prod: { domainName: 'talvio.co', storeDriver: 'unconfigured' },
+    dev: {
+      domainName: 'dev.talvio.co',
+      storeDriver: 'unconfigured',
+      roles: {
+        api: '${ssm:/dev/llm/api-role-arn}',
+        authorizer: '${ssm:/dev/llm/authorizer-role-arn}',
+      },
+    },
+    prod: {
+      domainName: 'talvio.co',
+      storeDriver: 'unconfigured',
+      roles: {
+        api: '${ssm:/prod/llm/api-role-arn}',
+        authorizer: '${ssm:/prod/llm/authorizer-role-arn}',
+      },
+    },
     customDomain: {
       rest: {
         // The shared api.<domain> custom domain and its DNS record belong to the platform

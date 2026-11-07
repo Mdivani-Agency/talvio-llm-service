@@ -16,7 +16,12 @@ describe('gateway responses', () => {
 describe('serverless.ts', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const config = require('../../serverless') as {
-    functions: { api: { events: { http: { path: string; authorizer?: unknown } }[] } };
+    functions: {
+      api: { role?: string; events: { http: { path: string; authorizer?: unknown } }[] };
+      authorizer: { role?: string };
+    };
+    provider: { iam?: unknown };
+    custom: Record<string, { roles?: Record<string, string> }>;
     resources: { Resources: Record<string, { Properties: { ResponseType: string } }> };
   };
 
@@ -36,5 +41,17 @@ describe('serverless.ts', () => {
     expect(
       Object.values(config.resources.Resources).map((resource) => resource.Properties.ResponseType),
     ).toEqual(Object.keys(GATEWAY_ERRORS));
+  });
+
+  it('runs each function under a Terraform-owned role read from SSM and creates no IAM of its own', () => {
+    expect(config.provider.iam).toBeUndefined();
+    expect(config.functions.api.role).toContain('roles.api');
+    expect(config.functions.authorizer.role).toContain('roles.authorizer');
+    for (const stage of ['dev', 'prod']) {
+      expect(config.custom[stage].roles).toEqual({
+        api: `\${ssm:/${stage}/llm/api-role-arn}`,
+        authorizer: `\${ssm:/${stage}/llm/authorizer-role-arn}`,
+      });
+    }
   });
 });
