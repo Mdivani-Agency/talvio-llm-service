@@ -48,7 +48,7 @@ describe('serverless.ts', () => {
     expect(config.functions.api.role).toContain('roles.api');
     expect(config.functions.authorizer.role).toContain('roles.authorizer');
     for (const stage of ['dev', 'prod']) {
-      expect(config.custom[stage].roles).toEqual({
+      expect(config.custom[stage]?.roles).toEqual({
         api: `\${ssm:/${stage}/llm/api-role-arn}`,
         authorizer: `\${ssm:/${stage}/llm/authorizer-role-arn}`,
       });
