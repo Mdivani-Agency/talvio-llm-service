@@ -17,11 +17,8 @@ describe('serverless.ts', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const config = require('../../serverless') as {
     functions: {
-      api: { role?: string; events: { http: { path: string; authorizer?: unknown } }[] };
-      authorizer: { role?: string };
+      api: { events: { http: { path: string; authorizer?: unknown } }[] };
     };
-    provider: { iam?: unknown };
-    custom: Record<string, { roles?: Record<string, string> }>;
     resources: { Resources: Record<string, { Properties: { ResponseType: string } }> };
   };
 
@@ -43,15 +40,40 @@ describe('serverless.ts', () => {
     ).toEqual(Object.keys(GATEWAY_ERRORS));
   });
 
-  it('runs each function under a Terraform-owned role read from SSM and creates no IAM of its own', () => {
-    expect(config.provider.iam).toBeUndefined();
-    expect(config.functions.api.role).toContain('roles.api');
-    expect(config.functions.authorizer.role).toContain('roles.authorizer');
-    for (const stage of ['dev', 'prod']) {
-      expect(config.custom[stage]?.roles).toEqual({
-        api: `\${ssm:/${stage}/llm/api-role-arn}`,
-        authorizer: `\${ssm:/${stage}/llm/authorizer-role-arn}`,
+  describe('Terraform-owned function roles', () => {
+    type Roles = {
+      provider: { iam?: unknown };
+      functions: { api: { role?: string }; authorizer: { role?: string } };
+    };
+    const originalArgv = process.argv;
+    const loadFor = (stageArgs: string[]): Roles => {
+      process.argv = [...originalArgv, ...stageArgs];
+      let loaded: Roles | undefined;
+      jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        loaded = require('../../serverless') as Roles;
       });
-    }
+      return loaded as Roles;
+    };
+    afterEach(() => {
+      process.argv = originalArgv;
+    });
+
+    it.each([
+      ['dev', ['--stage', 'dev']],
+      ['prod', ['--stage=prod']],
+      ['dev', []],
+    ])('reads only the %s stage roles from SSM and creates no IAM', (stage, args) => {
+      const loaded = loadFor(args);
+      expect(loaded.provider.iam).toBeUndefined();
+      expect(loaded.functions.api.role).toBe(`\${ssm:/${stage}/llm/api-role-arn}`);
+      expect(loaded.functions.authorizer.role).toBe(`\${ssm:/${stage}/llm/authorizer-role-arn}`);
+    });
+
+    it('references no SSM role for local runs', () => {
+      const loaded = loadFor(['--stage', 'local']);
+      expect(loaded.functions.api.role).toBeUndefined();
+      expect(loaded.functions.authorizer.role).toBeUndefined();
+    });
   });
 });

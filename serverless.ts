@@ -28,6 +28,28 @@ type ServerlessV4 = AWS & {
  * functions (MDI-215). Tables, buckets, queues and KMS are Terraform-owned too, so this stack creates no
  * IAM roles or stateful resources. Local runs use no role (serverless-offline ignores it).
  */
+/**
+ * The stage this run targets, read the way `${opt:stage, "dev"}` does. Serverless resolves every
+ * `${ssm:}` reference in the config before a command runs, even in unused `custom` branches, so the
+ * role lookups are built only for the selected stage and never for local, test or the other stage.
+ */
+const selectedStage = (): string => {
+  const args = process.argv;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === undefined) continue;
+    if (arg === '--stage' || arg === '-s') return args[i + 1] ?? 'dev';
+    if (arg.startsWith('--stage=')) return arg.slice('--stage='.length);
+  }
+  return 'dev';
+};
+
+/** SSM reference for a Terraform-owned Lambda role; no role (undefined) outside dev and prod. */
+const roleArn = (role: 'api' | 'authorizer'): string | undefined => {
+  const stage = selectedStage();
+  return stage === 'dev' || stage === 'prod' ? `\${ssm:/${stage}/llm/${role}-role-arn}` : undefined;
+};
+
 const AUTHORIZER = {
   name: 'authorizer',
   type: 'token',
@@ -99,7 +121,7 @@ const serverlessConfiguration: ServerlessV4 = {
   functions: {
     api: {
       handler: 'src/handler.main',
-      role: '${self:custom.${self:provider.stage}.roles.api, ""}',
+      role: roleArn('api'),
       events: ROUTE_TABLE.map((route) => ({
         http: {
           method: route.method.toLowerCase(),
@@ -110,7 +132,7 @@ const serverlessConfiguration: ServerlessV4 = {
     },
     authorizer: {
       handler: 'src/authorizer.main',
-      role: '${self:custom.${self:provider.stage}.roles.authorizer, ""}',
+      role: roleArn('authorizer'),
       memorySize: 256,
       timeout: 5,
     },
@@ -137,18 +159,10 @@ const serverlessConfiguration: ServerlessV4 = {
     dev: {
       domainName: 'dev.talvio.co',
       storeDriver: 'unconfigured',
-      roles: {
-        api: '${ssm:/dev/llm/api-role-arn}',
-        authorizer: '${ssm:/dev/llm/authorizer-role-arn}',
-      },
     },
     prod: {
       domainName: 'talvio.co',
       storeDriver: 'unconfigured',
-      roles: {
-        api: '${ssm:/prod/llm/api-role-arn}',
-        authorizer: '${ssm:/prod/llm/authorizer-role-arn}',
-      },
     },
     customDomain: {
       rest: {
