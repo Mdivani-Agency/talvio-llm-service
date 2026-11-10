@@ -13,3 +13,7 @@ coverage
 .env.*
 !.env.example
 dist
+
+# DynamoDB Local runtime files
+dynamodb-local-metadata.json
+shared-local-instance.db

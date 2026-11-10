@@ -63,7 +63,8 @@ const llmSsm = (name: string): string | undefined => {
 
 /** Work queue URLs by release as the JSON map the config expects; none for local runs. */
 const queueEnv = (): Record<string, string> => {
-  if (llmSsm('x') === undefined) return {};
+  const stage = selectedStage();
+  if (stage !== 'dev' && stage !== 'prod') return {};
   const urls = Object.fromEntries(RELEASES.map((r) => [r, llmSsm(`work-queue-url-${r}`)]));
   return { WORK_QUEUE_URLS: JSON.stringify(urls) };
 };

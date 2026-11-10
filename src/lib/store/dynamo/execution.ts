@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import type { JobError } from '@talvio/llm-contracts';
 
-import { DISPATCH_GRACE_MS } from '../../execution';
+import { DISPATCH_GRACE_MS, MAX_STEP_ATTEMPTS, abandonable } from '../../execution';
 import { RETENTION_MS } from '../../limits';
 import type {
   ClaimResult,
@@ -20,6 +20,13 @@ import { held, jobKey, resultKey, toRecord, type JobItem } from './job-items';
 import { eventItem } from './outbox';
 import { settleQuota, failedAt } from './quota';
 import { dueSweeps, sweepDelete, sweepKey, sweepPut } from './sweep';
+
+const crashError = (jobId: string): JobError => ({
+  code: 'internal_error',
+  message: 'The job stopped unexpectedly more than once.',
+  retryable: true,
+  correlationId: jobId,
+});
 
 const deadlineError = (jobId: string): JobError => ({
   code: 'deadline_exceeded',
@@ -223,6 +230,15 @@ export function createDynamoExecutionStore(db: Db): ExecutionStore {
       const due = it.exec.availableAt ? new Date(it.exec.availableAt) : null;
       if (it.status === 'retry_wait' && due && due > now) return skipped('not_due');
 
+      // Reclaiming a lease that lapsed means a worker died mid-step (OOM, timeout): that counts as
+      // an attempt, so an input that always kills its worker stops after the step's budget.
+      const crashed = it.status === 'running';
+      if (crashed && (it.exec.stepAttempts[it.stage] ?? 0) + 1 >= MAX_STEP_ATTEMPTS) {
+        if (await terminate(it, 'failed', now, { error: crashError(jobId) })) {
+          return skipped('terminal');
+        }
+        continue;
+      }
       const expiresAt = new Date(now.getTime() + leaseMs);
       try {
         await transact(db, [
@@ -232,10 +248,17 @@ export function createDynamoExecutionStore(db: Db): ExecutionStore {
               Key: jobKey(ownerId, jobId),
               UpdateExpression:
                 'SET #status = :running, updatedAt = :now, #exec.#fence = :next, ' +
-                '#exec.#lease = :lease, #exec.#available = :none',
+                '#exec.#lease = :lease, #exec.#available = :none' +
+                (crashed
+                  ? ', #exec.#attempts.#step = if_not_exists(#exec.#attempts.#step, :zero) + :one'
+                  : ''),
               ConditionExpression: '#status = :seen AND #exec.#fence = :fence',
-              ExpressionAttributeNames: pick('#status #exec #fence #lease #available'),
+              ExpressionAttributeNames: {
+                ...pick('#status #exec #fence #lease #available'),
+                ...(crashed ? { '#attempts': 'stepAttempts', '#step': it.stage } : {}),
+              },
               ExpressionAttributeValues: {
+                ...(crashed ? { ':zero': 0, ':one': 1 } : {}),
                 ':running': 'running',
                 ':now': now.toISOString(),
                 ':next': it.exec.fence + 1,
@@ -423,6 +446,13 @@ export function createDynamoExecutionStore(db: Db): ExecutionStore {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const it = await item(ownerId, jobId);
         if (!it || !held(it)) return 'stale';
+        const view = {
+          status: it.status,
+          leaseExpiresAt: it.exec.leaseExpiresAt ? new Date(it.exec.leaseExpiresAt) : null,
+          availableAt: it.exec.availableAt ? new Date(it.exec.availableAt) : null,
+        };
+        // A live worker, a parked wait or a later retry owns the job; the reconciler keeps driving it.
+        if (!abandonable(view, now)) return 'stale';
         if (await terminate(it, 'failed', now, { error })) return 'applied';
       }
       return 'stale';
@@ -443,8 +473,9 @@ export function createDynamoExecutionStore(db: Db): ExecutionStore {
         return 'settled';
       }
       if (now >= deadline(it)) {
-        await terminate(it, 'expired', now, { error: deadlineError(jobId) });
-        return 'expired';
+        return (await terminate(it, 'expired', now, { error: deadlineError(jobId) }))
+          ? 'expired'
+          : 'settled';
       }
       const next = sweepPut(
         db,

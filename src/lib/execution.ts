@@ -22,8 +22,29 @@ export const LEASE_MS = 360_000;
  */
 export const DISPATCH_GRACE_MS = 2 * 60_000;
 
-/** Backoff before attempt `attempt + 1`, with full jitter below the exponential ceiling. */
+/** Backoff before attempt `attempt + 1`, with half the exponential ceiling fixed and the rest jittered. */
 export function retryDelayMs(attempt: number, random: () => number = Math.random): number {
   const ceiling = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** Math.max(0, attempt - 1));
   return Math.round(ceiling / 2 + (random() * ceiling) / 2);
+}
+
+/**
+ * Whether a dead-lettered message may still end its job: only when nothing else is driving it.
+ * A queued job, a retry that is due, or a running job whose lease lapsed has no live worker; a job
+ * that is waiting on an external operation, or running under a live lease, has moved on.
+ */
+export function abandonable(
+  job: { status: string; leaseExpiresAt: Date | null; availableAt: Date | null },
+  now: Date,
+): boolean {
+  switch (job.status) {
+    case 'queued':
+      return true;
+    case 'retry_wait':
+      return job.availableAt === null || job.availableAt <= now;
+    case 'running':
+      return job.leaseExpiresAt === null || job.leaseExpiresAt <= now;
+    default:
+      return false;
+  }
 }

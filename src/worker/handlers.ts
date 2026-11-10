@@ -88,11 +88,26 @@ const RECONCILE_BATCH = 100;
 export function createReconciler(deps: { store: Store; logger: Logger } & Clock) {
   return async (): Promise<Record<string, number>> => {
     const now = deps.now ?? (() => new Date());
-    const counts: Record<string, number> = { expired: 0, requeued: 0, settled: 0, missing: 0 };
+    const counts: Record<string, number> = {
+      expired: 0,
+      requeued: 0,
+      settled: 0,
+      missing: 0,
+      failed: 0,
+    };
     const due = await deps.store.execution.due(now(), RECONCILE_BATCH);
     for (const { ownerId, jobId } of due) {
-      const result = await deps.store.execution.reconcile(ownerId, jobId, now());
-      counts[result] = (counts[result] ?? 0) + 1;
+      // One job that throws must not starve the rest of the sweep.
+      try {
+        const result = await deps.store.execution.reconcile(ownerId, jobId, now());
+        counts[result] = (counts[result] ?? 0) + 1;
+      } catch (error) {
+        counts.failed = (counts.failed ?? 0) + 1;
+        deps.logger.log('error', {
+          event: 'reconcile_failed',
+          errorName: error instanceof Error ? error.name : 'unknown',
+        });
+      }
     }
     deps.logger.log('info', {
       event: 'reconcile_run',

@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 
 import { LIMITS, TERMINAL_JOB_STATUSES } from '@talvio/llm-contracts';
 
-import { DISPATCH_GRACE_MS } from '../execution';
+import { DISPATCH_GRACE_MS, MAX_STEP_ATTEMPTS, abandonable } from '../execution';
 import { answeredContext, firstContext } from './context';
 import {
   DEFAULT_ACCOUNT_DAILY_CEILING_MICRO_USD,
@@ -330,6 +330,22 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
         if (job.status === 'retry_wait' && job.exec.availableAt && job.exec.availableAt > now) {
           return { kind: 'skipped', reason: 'not_due' };
         }
+        // A lapsed lease means a worker died mid-step: that counts as an attempt.
+        if (job.status === 'running') {
+          const used = (job.exec.stepAttempts[job.stage] ?? 0) + 1;
+          if (used >= MAX_STEP_ATTEMPTS) {
+            settle(job, 'failed', now, {
+              error: {
+                code: 'internal_error',
+                message: 'The job stopped unexpectedly more than once.',
+                retryable: true,
+                correlationId: job.jobId,
+              },
+            });
+            return { kind: 'skipped', reason: 'terminal' };
+          }
+          job.exec.stepAttempts[job.stage] = used;
+        }
         const expiresAt = new Date(now.getTime() + leaseMs);
         job.status = 'running';
         job.updatedAt = now;
@@ -420,6 +436,14 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
       async abandon(ownerId, jobId, error, now) {
         const job = owned(jobs.get(jobId), ownerId);
         if (!job || !held(job)) return 'stale';
+        const view = {
+          status: job.status,
+          leaseExpiresAt: job.exec.leaseExpiresAt,
+          availableAt: job.exec.availableAt,
+        };
+        if (!abandonable(view, now)) {
+          return 'stale';
+        }
         settle(job, 'failed', now, { error });
         return 'applied';
       },

@@ -169,6 +169,20 @@ describe('background handlers', () => {
       expect(await reconcile()).toMatchObject({ requeued: 0, expired: 0 });
     });
 
+    it('keeps sweeping when one job throws', async () => {
+      await admit('key-00000001');
+      await admit('key-00000002');
+      tick(DISPATCH_GRACE_MS + 1_000);
+      const original = store.execution.reconcile.bind(store.execution);
+      let calls = 0;
+      store.execution.reconcile = async (...args) => {
+        calls += 1;
+        if (calls === 1) throw new Error('boom: secret text');
+        return original(...args);
+      };
+      expect(await reconcile()).toMatchObject({ failed: 1, requeued: 1 });
+    });
+
     it('republishes work whose message was lost, so the job still runs', async () => {
       const { job } = await admit('key-00000001');
       // The enqueue acknowledgment was lost: the event was marked sent but no message exists.

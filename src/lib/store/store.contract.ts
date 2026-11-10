@@ -625,13 +625,33 @@ export function describeStoreContract(name: string, make: MakeHarness) {
         });
       });
 
+      it('counts a lapsed lease as an attempt and stops a job that keeps killing its worker', async () => {
+        const a = await admit(alice, 'key-00000001');
+        let t = 0;
+        let outcome = await h.store.execution.claim(alice, a.job.jobId, later(t), LEASE_MS);
+        for (let crash = 1; crash <= 3; crash += 1) {
+          expect(outcome.kind).toBe('claimed');
+          t += LEASE_MS + 1_000; // the worker died; the lease lapses
+          outcome = await h.store.execution.claim(alice, a.job.jobId, later(t), LEASE_MS);
+        }
+        expect(outcome).toEqual({ kind: 'skipped', reason: 'terminal' });
+        expect(await h.store.jobs.get(alice, a.job.jobId)).toMatchObject({
+          status: 'failed',
+          error: { code: 'internal_error', retryable: true },
+          spendReservedMicroUsd: 0,
+        });
+      });
+
       it('ends a stuck job visibly and keeps it retryable by its owner', async () => {
         const { job } = await admit(alice, 'key-00000001');
         const { lease } = await claimed(alice, job.jobId);
         const error = expiredError(job.jobId, 'internal_error');
-        expect(await h.store.execution.abandon(bob, job.jobId, error, NOW)).toBe('stale');
-        expect(await h.store.execution.abandon(alice, job.jobId, error, NOW)).toBe('applied');
+        const dead = later(LEASE_MS + 1_000);
+        // A worker under a live lease owns the job; a lapsed lease does not.
         expect(await h.store.execution.abandon(alice, job.jobId, error, NOW)).toBe('stale');
+        expect(await h.store.execution.abandon(bob, job.jobId, error, dead)).toBe('stale');
+        expect(await h.store.execution.abandon(alice, job.jobId, error, dead)).toBe('applied');
+        expect(await h.store.execution.abandon(alice, job.jobId, error, dead)).toBe('stale');
         expect(await h.store.execution.succeed(lease, {}, { spendCommittedMicroUsd: 0 }, NOW)).toBe(
           'stale',
         );
