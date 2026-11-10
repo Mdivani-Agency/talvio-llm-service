@@ -5,11 +5,15 @@ import type { CreateJobRequest } from '@talvio/llm-contracts';
 
 import { DISPATCH_GRACE_MS } from '../lib/execution';
 import { createLogger } from '../lib/log';
-import { createMemoryQueues, dispatchEvent, type WorkMessage } from '../lib/queue';
+import { strToU8, zipSync } from 'fflate';
+
+import { createMemoryBlobs, sha256Hex } from '../lib/blob';
+import { createMemoryQueues, dispatchEvent, toWorkMessage, type WorkMessage } from '../lib/queue';
 import { createMemoryStore, type MemoryStore } from '../lib/store/memory';
 import {
   createDeadLetterHandler,
   createDispatcher,
+  createOcrHandler,
   createReconciler,
   createWorkerHandler,
 } from './handlers';
@@ -26,6 +30,7 @@ const sqs = (...bodies: string[]): SQSEvent =>
 describe('background handlers', () => {
   let store: MemoryStore;
   let queues: ReturnType<typeof createMemoryQueues>;
+  let blobs: ReturnType<typeof createMemoryBlobs>;
   let clock: Date;
   const logger = createLogger('error', () => undefined);
   const now = () => clock;
@@ -61,6 +66,7 @@ describe('background handlers', () => {
   beforeEach(() => {
     store = createMemoryStore();
     queues = createMemoryQueues();
+    blobs = createMemoryBlobs();
     clock = START;
   });
 
@@ -69,13 +75,19 @@ describe('background handlers', () => {
 
     it('runs the job named by a message', async () => {
       const { job } = await admit('key-00000001');
-      const handle = createWorkerHandler({ store, executors: { parse_document: ok }, logger, now });
+      const handle = createWorkerHandler({
+        store,
+        blobs,
+        executors: { parse_document: ok },
+        logger,
+        now,
+      });
       expect(await handle(sqs(body(job.jobId)))).toEqual({ batchItemFailures: [] });
       expect(await store.jobs.get(OWNER, job.jobId)).toMatchObject({ status: 'succeeded' });
     });
 
     it('acknowledges messages it cannot read instead of retrying them', async () => {
-      const handle = createWorkerHandler({ store, executors: {}, logger, now });
+      const handle = createWorkerHandler({ store, blobs, executors: {}, logger, now });
       expect(await handle(sqs('not json', '{"v":2}', JSON.stringify({ v: 1 })))).toEqual({
         batchItemFailures: [],
       });
@@ -92,7 +104,7 @@ describe('background handlers', () => {
           },
         },
       } as MemoryStore;
-      const handle = createWorkerHandler({ store: broken, executors: {}, logger, now });
+      const handle = createWorkerHandler({ store: broken, blobs, executors: {}, logger, now });
       expect(await handle(sqs(body(job.jobId)))).toEqual({
         batchItemFailures: [{ itemIdentifier: 'm0' }],
       });
@@ -100,7 +112,7 @@ describe('background handlers', () => {
   });
 
   describe('dispatcher', () => {
-    const dispatcher = () => createDispatcher({ store, queues, logger, now });
+    const dispatcher = () => createDispatcher({ store, queues, currentRelease: 'v1', logger, now });
 
     it('sends each due event once and marks it dispatched', async () => {
       const { job } = await admit('key-00000001');
@@ -133,6 +145,7 @@ describe('background handlers', () => {
       // Both copies are harmless: the second finds the job leased or finished.
       const worker = createWorkerHandler({
         store,
+        blobs,
         executors: {
           parse_document: async () => ({ kind: 'succeeded', result: 1, spendMicroUsd: 0 }),
         },
@@ -190,10 +203,11 @@ describe('background handlers', () => {
       await store.outbox.markDispatched(event!, clock);
       tick(DISPATCH_GRACE_MS + 1_000);
       expect(await reconcile()).toMatchObject({ requeued: 1 });
-      await createDispatcher({ store, queues, logger, now })();
+      await createDispatcher({ store, queues, currentRelease: 'v1', logger, now })();
       expect(queues.sent.map((s) => s.message.type)).toEqual(['job.requeue']);
       const worker = createWorkerHandler({
         store,
+        blobs,
         executors: {
           parse_document: async () => ({ kind: 'succeeded', result: 1, spendMicroUsd: 0 }),
         },
@@ -244,9 +258,93 @@ describe('background handlers', () => {
     });
   });
 
+  describe('documents', () => {
+    const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    const bytes = zipSync({
+      '[Content_Types].xml': strToU8('<Types/>'),
+      'word/document.xml': strToU8(
+        '<w:document xmlns:w="w"><w:body><w:p><w:r><w:t>Hello</w:t></w:r></w:p></w:body></w:document>',
+      ),
+    });
+
+    async function validating() {
+      const key = `pending/${OWNER}/${randomUUID()}`;
+      const document = await store.documents.create(
+        OWNER,
+        {
+          schemaVersion: '1.0',
+          fileName: 'cv',
+          contentType: DOCX,
+          sizeBytes: bytes.length,
+          sha256: sha256Hex(bytes),
+        },
+        key,
+        clock,
+      );
+      const versionId = blobs.upload(key, bytes, DOCX);
+      const completed = await store.documents.complete(
+        OWNER,
+        document.documentId,
+        { versionId },
+        clock,
+      );
+      return { document, event: completed!.event! };
+    }
+
+    it('validates a document end to end through the dispatcher and the worker', async () => {
+      const { document, event } = await validating();
+      expect(event.type).toBe('document.validate');
+      await createDispatcher({ store, queues, currentRelease: 'v1', logger, now })();
+      // Document work goes to the current release queue, with no content in the message.
+      expect(queues.sent).toHaveLength(1);
+      expect(queues.sent[0]?.releaseId).toBe('v1');
+      const message = JSON.stringify(queues.sent[0]?.message);
+      expect(message).not.toContain('Hello');
+      const worker = createWorkerHandler({ store, blobs, executors: {}, logger, now });
+      expect(await worker(sqs(message))).toEqual({ batchItemFailures: [] });
+      expect(await store.documents.get(OWNER, document.documentId)).toMatchObject({
+        status: 'ready',
+      });
+      // Redelivery of the same message is harmless.
+      expect(await worker(sqs(message))).toEqual({ batchItemFailures: [] });
+      expect(blobs.keys('artifacts')).toHaveLength(1);
+    });
+
+    it('returns a message to the queue when storage fails', async () => {
+      const { document } = await validating();
+      blobs.read = async () => {
+        throw new Error('S3 unavailable');
+      };
+      const worker = createWorkerHandler({ store, blobs, executors: {}, logger, now });
+      const result = await worker(
+        sqs(JSON.stringify(toWorkMessage((await store.outbox.pending(1, clock))[0]!))),
+      );
+      expect(result.batchItemFailures).toHaveLength(1);
+      expect((await store.documents.get(OWNER, document.documentId))?.status).toBe('validating');
+    });
+
+    it('ends a dead-lettered document visibly instead of leaving it validating', async () => {
+      const { document, event } = await validating();
+      const handle = createDeadLetterHandler({ store, logger, now });
+      expect(await handle(sqs(JSON.stringify(toWorkMessage(event))))).toEqual({
+        batchItemFailures: [],
+      });
+      expect(await store.documents.get(OWNER, document.documentId)).toMatchObject({
+        status: 'rejected',
+        rejectionCode: 'unusable_document',
+      });
+    });
+
+    it('ignores OCR notifications when OCR is not configured, and unreadable ones', async () => {
+      const handle = createOcrHandler({ store, blobs, logger, now });
+      const good = JSON.stringify({ JobId: 'j', Status: 'SUCCEEDED', JobTag: 'a'.repeat(64) });
+      expect(await handle(sqs('garbage', good))).toEqual({ batchItemFailures: [] });
+    });
+  });
+
   it('dispatches one event through dispatchEvent', async () => {
     const { event } = await admit('key-00000001');
-    await dispatchEvent({ store, queues }, event!, clock);
+    await dispatchEvent({ store, queues, currentRelease: 'v1' }, event!, clock);
     expect(queues.sent).toHaveLength(1);
     expect(await store.outbox.pending(10, clock)).toEqual([]);
   });

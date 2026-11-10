@@ -62,6 +62,17 @@ const llmSsm = (name: string): string | undefined => {
 };
 
 /** Work queue URLs by release as the JSON map the config expects; none for local runs. */
+const bucketEnv = (): Record<string, string> => {
+  const stage = selectedStage();
+  if (stage !== 'dev' && stage !== 'prod') return {};
+  return {
+    LLM_QUARANTINE_BUCKET: `\${ssm:/${stage}/s3/llm-quarantine}`,
+    LLM_ARTIFACTS_BUCKET: `\${ssm:/${stage}/s3/llm-artifacts}`,
+    OCR_TOPIC_ARN: `\${ssm:/${stage}/llm/ocr-topic-arn}`,
+    OCR_ROLE_ARN: `\${ssm:/${stage}/llm/textract-role-arn}`,
+  };
+};
+
 const queueEnv = (): Record<string, string> => {
   const stage = selectedStage();
   if (stage !== 'dev' && stage !== 'prod') return {};
@@ -173,6 +184,7 @@ const serverlessConfiguration: ServerlessV4 = {
       STORE_DRIVER: '${self:custom.${self:provider.stage}.storeDriver, "unconfigured"}',
       PIPELINE_RELEASE: CURRENT_RELEASE,
       ...queueEnv(),
+      ...bucketEnv(),
       ...tableEnv(),
       NODE_OPTIONS: '--enable-source-maps',
     },
@@ -214,6 +226,15 @@ const serverlessConfiguration: ServerlessV4 = {
       memorySize: 256,
       timeout: 30,
       events: sqsEvent(`work-dlq-arn-${CURRENT_RELEASE}`, {}),
+    },
+    // Textract completion: finishes documents waiting on asynchronous OCR. One notification per
+    // invocation; a notification that beats our own bookkeeping goes back to the queue.
+    ocr: {
+      handler: 'src/ocr.main',
+      role: roleArn('worker'),
+      memorySize: 512,
+      timeout: 120,
+      events: sqsEvent('ocr-queue-arn', { maximumConcurrency: 2 }),
     },
     dispatcher: {
       handler: 'src/dispatcher.main',

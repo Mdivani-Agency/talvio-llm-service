@@ -14,7 +14,15 @@ export const WORK_MESSAGE_VERSION = 1;
 
 export const workMessageSchema = z.strictObject({
   v: z.literal(WORK_MESSAGE_VERSION),
-  type: z.enum(['job.admitted', 'job.retried', 'job.requeue', 'job.retry', 'job.resume']),
+  type: z.enum([
+    'document.validate',
+    'document.ocr_done',
+    'job.admitted',
+    'job.retried',
+    'job.requeue',
+    'job.retry',
+    'job.resume',
+  ]),
   ownerId: z.uuid(),
   jobId: z.uuid(),
   eventId: z.uuid(),
@@ -91,10 +99,14 @@ export const toWorkMessage = (event: OutboxEvent): WorkMessage => ({
 
 /** Sends one event and then marks it dispatched. A crash between the two sends it again, which is fine. */
 export async function dispatchEvent(
-  deps: { store: Pick<Store, 'outbox'>; queues: WorkQueues },
+  deps: { store: Pick<Store, 'outbox'>; queues: WorkQueues; currentRelease: string },
   event: OutboxEvent,
   now: Date,
 ): Promise<void> {
-  await deps.queues.send(event.pipelineReleaseId, toWorkMessage(event));
+  // A job keeps the release that admitted it; document work always goes to the current one.
+  const release = event.type.startsWith('document.')
+    ? deps.currentRelease
+    : event.pipelineReleaseId;
+  await deps.queues.send(release, toWorkMessage(event));
   await deps.store.outbox.markDispatched(event, now);
 }

@@ -1,3 +1,4 @@
+import type { BlobStore } from '@lib/blob';
 import type { Logger } from '@lib/log';
 import type { OutboxEvent, Store } from '@lib/store';
 
@@ -25,6 +26,7 @@ export type RouteResult = {
 
 export type Deps = {
   store: Store;
+  blobs: BlobStore;
   logger: Logger;
   /** Pipeline release new jobs are pinned to. */
   pipelineReleaseId: string;

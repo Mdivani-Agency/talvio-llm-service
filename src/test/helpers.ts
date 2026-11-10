@@ -8,6 +8,7 @@ import { UNAUTHORIZED, createAuthorizer } from '../api/authorizer';
 import { GATEWAY_ERRORS, GATEWAY_HEADERS, gatewayBody } from '../api/gateway-responses';
 import { ROUTE_TABLE } from '../api/route-table';
 import { createTokenVerifier, type TokenVerifier } from '../lib/auth';
+import { createMemoryBlobs } from '../lib/blob';
 import { createLogger } from '../lib/log';
 import { createMemoryQueues, dispatchEvent } from '../lib/queue';
 import { createMemoryStore, type MemoryStore } from '../lib/store/memory';
@@ -124,6 +125,7 @@ export type TestApp = {
   handle(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult>;
   store: MemoryStore;
   queues: ReturnType<typeof createMemoryQueues>;
+  blobs: ReturnType<typeof createMemoryBlobs>;
   key: SigningKey;
   logs: string[];
   tokenFor(userId: string, options?: Partial<TokenOptions>): Promise<string>;
@@ -149,13 +151,19 @@ export async function testApp(
   const store = createMemoryStore();
   const logger = createLogger('debug', (line) => logs.push(line));
   const queues = createMemoryQueues();
+  const blobs = createMemoryBlobs();
   const app = createApp({
     store: options.store ?? store,
+    blobs,
     logger,
     maxBodyBytes: options.maxBodyBytes ?? 1_000_000,
     pipelineReleaseId: 'v1',
     dispatch: (event) =>
-      dispatchEvent({ store: options.store ?? store, queues }, event, new Date()),
+      dispatchEvent(
+        { store: options.store ?? store, queues, currentRelease: 'v1' },
+        event,
+        new Date(),
+      ),
   });
   const authorize = createAuthorizer({
     logger,
@@ -209,6 +217,7 @@ export async function testApp(
     handle,
     store,
     queues,
+    blobs,
     key,
     logs,
     tokenFor: (userId, extra = {}) => token({ key, sub: userId, ...extra }),

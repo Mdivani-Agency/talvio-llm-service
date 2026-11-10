@@ -25,10 +25,14 @@
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "3.1149.0",
+    "@aws-sdk/client-s3": "3.1149.0",
     "@aws-sdk/client-sqs": "3.1149.0",
+    "@aws-sdk/client-textract": "3.1149.0",
     "@aws-sdk/lib-dynamodb": "3.1149.0",
+    "@aws-sdk/s3-request-presigner": "3.1149.0",
     "@aws-sdk/util-dynamodb": "3.996.9",
     "@talvio/llm-contracts": "workspace:*",
+    "fflate": "0.8.3",
     "jose": "5.10.0",
     "zod": "4.6.5"
   },

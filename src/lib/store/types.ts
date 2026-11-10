@@ -132,6 +132,8 @@ export interface JobStore {
 }
 
 export type OutboxEventType =
+  | 'document.validate'
+  | 'document.ocr_done'
   | 'job.admitted'
   | 'job.retried'
   | 'job.requeue'
@@ -142,8 +144,10 @@ export type OutboxEvent = {
   eventId: string;
   type: OutboxEventType;
   ownerId: string;
+  /** The job; for `document.*` events the document id. */
   jobId: string;
-  operation: Operation;
+  /** Null for document events. */
+  operation: Operation | null;
   pipelineReleaseId: string;
   createdAt: Date;
   /** Not dispatched before this time (retry backoff). */
@@ -214,6 +218,34 @@ export interface ExecutionStore {
   reconcile(ownerId: string, jobId: string, now: Date): Promise<ReconcileResult>;
 }
 
+export type DocumentRejection =
+  | 'unsupported_media_type'
+  | 'payload_too_large'
+  | 'unusable_document'
+  | 'checksum_mismatch';
+
+export type DocumentWarning = { code: string; message: string };
+
+/** The extracted text, stored privately in the artifacts bucket and pinned by version and hash. */
+export type DocumentArtifact = {
+  key: string;
+  versionId: string | null;
+  sha256: string;
+  chars: number;
+  extractorVersion: string;
+  method: 'docx' | 'ocr';
+};
+
+/** Progress of an asynchronous text detection, so a redelivered message resumes instead of paying again. */
+export type DocumentOcr = {
+  state: 'starting' | 'started';
+  /** Stable idempotency token for the provider call; reusing it returns the same operation. */
+  clientToken: string;
+  /** Provider job id, set once the operation started. */
+  textractJobId: string | null;
+  pages: number;
+};
+
 export type DocumentRecord = {
   documentId: string;
   ownerId: string;
@@ -221,11 +253,29 @@ export type DocumentRecord = {
   contentType: CreateDocumentRequest['contentType'];
   sizeBytes: number;
   sha256: string;
+  /** Quarantine key of the upload: `pending/<owner>/<random>`. */
+  objectKey: string;
+  /** The object version accepted at completion; later replacements are ignored. */
+  objectVersionId: string | null;
   pageCount: number | null;
   ocrPages: number[];
+  rejectionCode: DocumentRejection | null;
+  warnings: DocumentWarning[];
+  artifact: DocumentArtifact | null;
+  ocr: DocumentOcr | null;
   createdAt: Date;
   expiresAt: Date;
 };
+
+export type DocumentOutcome =
+  | {
+      kind: 'ready';
+      pageCount: number | null;
+      ocrPages: number[];
+      warnings: DocumentWarning[];
+      artifact: DocumentArtifact;
+    }
+  | { kind: 'rejected'; code: DocumentRejection; warnings: DocumentWarning[] };
 
 export type UploadGrant = {
   method: 'PUT';
@@ -235,16 +285,45 @@ export type UploadGrant = {
 };
 
 export interface DocumentStore {
-  create(ownerId: string, request: CreateDocumentRequest, now: Date): Promise<DocumentRecord>;
+  create(
+    ownerId: string,
+    request: CreateDocumentRequest,
+    objectKey: string,
+    now: Date,
+  ): Promise<DocumentRecord>;
   get(ownerId: string, documentId: string): Promise<DocumentRecord | null>;
-  /** awaiting_upload → validating; other states are returned unchanged. */
-  complete(ownerId: string, documentId: string, now: Date): Promise<DocumentRecord | null>;
-  delete(ownerId: string, documentId: string): Promise<boolean>;
-}
-
-/** Short-lived private upload grants (S3 presign with MDI-213/216). */
-export interface UploadGrants {
-  create(document: DocumentRecord, now: Date): Promise<UploadGrant>;
+  /**
+   * awaiting_upload → validating, pinning the object version, with a `document.validate` event in
+   * the same write. Any other state is returned unchanged with no event.
+   */
+  complete(
+    ownerId: string,
+    documentId: string,
+    pin: { versionId: string | null },
+    now: Date,
+  ): Promise<{ document: DocumentRecord; event: OutboxEvent | null } | null>;
+  /** Records the intent to start OCR (validating, none started yet). False when not applicable. */
+  beginOcr(
+    ownerId: string,
+    documentId: string,
+    ocr: { clientToken: string; pages: number },
+  ): Promise<boolean>;
+  /** Records the provider job id for the token that began it. False when stale. */
+  recordOcrJob(
+    ownerId: string,
+    documentId: string,
+    clientToken: string,
+    textractJobId: string,
+  ): Promise<boolean>;
+  /** validating → ready or rejected. A document that was deleted or already finished returns null. */
+  finish(
+    ownerId: string,
+    documentId: string,
+    outcome: DocumentOutcome,
+    now: Date,
+  ): Promise<DocumentRecord | null>;
+  /** Removes the record and returns it, so its objects can be cleaned up. Null when absent. */
+  delete(ownerId: string, documentId: string): Promise<DocumentRecord | null>;
 }
 
 export type SessionRecord = {
@@ -328,6 +407,5 @@ export type Store = {
   outbox: OutboxStore;
   execution: ExecutionStore;
   documents: DocumentStore;
-  uploads: UploadGrants;
   sessions: SessionStore;
 };

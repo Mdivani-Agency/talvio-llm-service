@@ -4,6 +4,7 @@ import { createApp } from './api/app';
 import { ConfigError, loadConfig } from './lib/config';
 import { createLogger } from './lib/log';
 import { createNoQueues, createSqsQueues, dispatchEvent } from './lib/queue';
+import { createBlobs } from './lib/blob';
 import { createStore } from './lib/store';
 
 /*
@@ -40,10 +41,16 @@ function build(): Handler {
       : createNoQueues();
     return createApp({
       store,
+      blobs: createBlobs(config),
       logger: createLogger(config.LOG_LEVEL),
       maxBodyBytes: config.MAX_BODY_BYTES,
       pipelineReleaseId: config.PIPELINE_RELEASE,
-      dispatch: (event) => dispatchEvent({ store, queues }, event, new Date()),
+      dispatch: (event) =>
+        dispatchEvent(
+          { store, queues, currentRelease: config.PIPELINE_RELEASE },
+          event,
+          new Date(),
+        ),
     });
   } catch (error) {
     if (error instanceof ConfigError) {

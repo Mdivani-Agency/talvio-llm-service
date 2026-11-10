@@ -155,10 +155,13 @@ suite('DynamoDB', () => {
       const document = await store.documents.create(
         owner,
         { contentType: 'application/pdf', sizeBytes: 1, sha256: 'a'.repeat(64) } as never,
+        'pending/o/k',
         long,
       );
       expect(await store.documents.get(owner, document.documentId)).toBeNull();
-      expect(await store.documents.complete(owner, document.documentId, new Date())).toBeNull();
+      expect(
+        await store.documents.complete(owner, document.documentId, { versionId: null }, new Date()),
+      ).toBeNull();
     });
 
     const parse = {
