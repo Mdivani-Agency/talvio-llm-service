@@ -141,7 +141,9 @@ export function createDynamoSessionStore(db: Db): SessionStore {
             Put: {
               TableName: tables.sessions,
               Item: { ...idemKey(ownerId, clientRequestId), sessionId, requestHash, expiresAt },
-              ConditionExpression: 'attribute_not_exists(pk)',
+              // A record past its TTL is logically gone even if the sweeper has not removed it.
+              ConditionExpression: 'attribute_not_exists(pk) OR expiresAt <= :now',
+              ExpressionAttributeValues: { ':now': epochSeconds(now) },
             },
           },
         ]);

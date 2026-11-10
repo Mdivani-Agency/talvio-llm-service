@@ -160,6 +160,107 @@ suite('DynamoDB', () => {
       expect(await store.documents.complete(owner, document.documentId, new Date())).toBeNull();
     });
 
+    const parse = {
+      operation: 'parse_document',
+      input: { kind: 'text', text: 't', extraction: null },
+    } as never;
+    const admitAt = (store: ReturnType<typeof createDynamoStore>, key: string, now: Date) =>
+      store.jobs.admit({
+        ownerId: owner,
+        plan: 'free',
+        idempotencyKey: key,
+        requestHash: key,
+        request: parse,
+        now,
+        deadlineAt: new Date(now.getTime() + 600_000),
+      });
+    const markSucceeded = (jobId: string) =>
+      db.client.send(
+        new UpdateCommand({
+          TableName: tables.jobs,
+          Key: { pk: `U#${owner}`, sk: `JOB#${jobId}` },
+          UpdateExpression: 'SET #status = :s',
+          ExpressionAttributeNames: { '#status': 'status' },
+          ExpressionAttributeValues: { ':s': 'succeeded' },
+        }),
+      );
+
+    it('lets a request reuse an idempotency key whose record has expired but is not yet swept', async () => {
+      const store = createDynamoStore({ tables, endpoint });
+      const old = await admitAt(store, 'key-reuse-001', long);
+      expect(await store.jobs.get(owner, old.job.jobId)).toBeNull();
+      const fresh = await admitAt(store, 'key-reuse-001', new Date());
+      expect(fresh.replayed).toBe(false);
+      expect(fresh.job.jobId).not.toBe(old.job.jobId);
+
+      const create = (now: Date) =>
+        store.sessions.create({
+          ownerId: owner,
+          clientRequestId: 'session-reuse-1',
+          requestHash: 'h',
+          purpose: 'improve',
+          context: {
+            sourceHash: 'a'.repeat(64),
+            jobDescriptionHash: null,
+            contextHash: 'b'.repeat(64),
+          } as never,
+          now,
+        });
+      const oldSession = await create(long);
+      const freshSession = await create(new Date());
+      expect(freshSession.replayed).toBe(false);
+      expect(freshSession.session.sessionId).not.toBe(oldSession.session.sessionId);
+    });
+
+    it('shows a succeeded job whose result has aged out as expired, on get and on list', async () => {
+      const jobs = createDynamoJobStore(db);
+      const now = new Date();
+      const { job } = await admitAt(createDynamoStore({ tables, endpoint }), 'key-gone-0001', now);
+      await markSucceeded(job.jobId);
+      const gone = {
+        status: 'expired',
+        stage: 'done',
+        result: null,
+        error: { code: 'deadline_exceeded' },
+      };
+      expect(await jobs.get(owner, job.jobId)).toMatchObject(gone);
+      expect((await jobs.list(owner, null, 10)).jobs[0]).toMatchObject(gone);
+      // Once a result exists it is shown instead.
+      await jobs.putResult(owner, job.jobId, { ok: 1 }, now);
+      expect(await jobs.get(owner, job.jobId)).toMatchObject({
+        status: 'succeeded',
+        result: { ok: 1 },
+      });
+    });
+
+    it('asks again for result keys DynamoDB leaves unprocessed', async () => {
+      const jobs = createDynamoJobStore(db);
+      const now = new Date();
+      const { job } = await admitAt(createDynamoStore({ tables, endpoint }), 'key-batch-001', now);
+      await markSucceeded(job.jobId);
+      await jobs.putResult(owner, job.jobId, { ok: 2 }, now);
+
+      const send = db.client.send.bind(db.client);
+      let batches = 0;
+      const spy = jest.spyOn(db.client, 'send').mockImplementation(((command: {
+        constructor: { name: string };
+        input: unknown;
+      }) => {
+        if (command.constructor.name === 'BatchGetCommand' && batches++ === 0) {
+          const input = command.input as { RequestItems: Record<string, unknown> };
+          return Promise.resolve({ Responses: {}, UnprocessedKeys: input.RequestItems });
+        }
+        return send(command as never);
+      }) as never);
+      try {
+        const page = await jobs.list(owner, null, 10);
+        expect(page.jobs[0]).toMatchObject({ status: 'succeeded', result: { ok: 2 } });
+        expect(batches).toBe(2);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     it('writes every item with a TTL on the documented schedule', async () => {
       const jobs = createDynamoJobStore(db);
       const now = new Date();

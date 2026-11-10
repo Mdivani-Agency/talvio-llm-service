@@ -75,7 +75,28 @@ type JobItem = {
 type IdemItem = { jobId: string; requestHash: string; expiresAt: number };
 type ResultItem = { result: unknown; expiresAt: number };
 
-const toRecord = (item: JobItem, result: unknown | null): JobRecord => ({
+/**
+ * A succeeded job whose result has aged out (7 days) while its metadata remains (30 days) is shown
+ * as expired, so the record still satisfies the contract's "result exactly when succeeded".
+ */
+const RESULT_GONE = (jobId: string): JobError => ({
+  code: 'deadline_exceeded',
+  message: 'The result of this job is no longer available.',
+  retryable: false,
+  correlationId: jobId,
+});
+
+const toRecord = (item: JobItem, result: unknown | null): JobRecord => {
+  if (item.status === 'succeeded' && result === null) {
+    return toRecordAs(
+      { ...item, status: 'expired', stage: 'done', error: RESULT_GONE(item.jobId) },
+      null,
+    );
+  }
+  return toRecordAs(item, result);
+};
+
+const toRecordAs = (item: JobItem, result: unknown | null): JobRecord => ({
   jobId: item.jobId,
   ownerId: item.ownerId,
   operation: item.operation,
@@ -102,6 +123,7 @@ const held = (job: Pick<JobRecord, 'status'>) => !TERMINAL_JOB_STATUSES.includes
 
 /** Compare-and-set attempts for cancel, retry and delete when a worker changes the job meanwhile. */
 const ATTEMPTS = 3;
+const BATCH_ATTEMPTS = 5;
 
 /** A job's opaque cursor carries only the sort key; the owner part is always rebuilt. */
 const encodeCursor = (gsi1sk: string) => Buffer.from(gsi1sk).toString('base64url');
@@ -261,7 +283,9 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
           Put: {
             TableName: tables.jobs,
             Item: { ...idemKey(ownerId, idempotencyKey), jobId, requestHash, expiresAt },
-            ConditionExpression: 'attribute_not_exists(pk)',
+            // A record past its TTL is logically gone even if the sweeper has not removed it.
+            ConditionExpression: 'attribute_not_exists(pk) OR expiresAt <= :now',
+            ExpressionAttributeValues: { ':now': epochSeconds(now) },
           },
         },
         ...takeQuota(db, ownerId, take),
@@ -318,21 +342,27 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
     const succeeded = items.filter((item) => item.status === 'succeeded');
     const results = new Map<string, unknown>();
     if (succeeded.length > 0) {
-      const batch = await client.send(
-        new BatchGetCommand({
-          RequestItems: {
-            [tables.jobs]: {
-              Keys: succeeded.map((item) => resultKey(ownerId, item.jobId)),
-              ConsistentRead: true,
-            },
-          },
-        }),
-      );
-      for (const found of (batch.Responses?.[tables.jobs] ?? []) as (ResultItem & {
-        sk: string;
-      })[]) {
-        if (!isExpired(found, now)) {
-          results.set(found.sk.slice('RESULT#'.length), found.result);
+      let keys: Record<string, unknown>[] = succeeded.map((item) => resultKey(ownerId, item.jobId));
+      for (let attempt = 1; keys.length > 0; attempt += 1) {
+        if (attempt > BATCH_ATTEMPTS) {
+          throw new Error('result batch left unprocessed');
+        }
+        const batch = await client.send(
+          new BatchGetCommand({
+            RequestItems: { [tables.jobs]: { Keys: keys, ConsistentRead: true } },
+          }),
+        );
+        for (const found of (batch.Responses?.[tables.jobs] ?? []) as (ResultItem & {
+          sk: string;
+        })[]) {
+          if (!isExpired(found, now)) {
+            results.set(found.sk.slice('RESULT#'.length), found.result);
+          }
+        }
+        // Throttling or size limits return the rest here without an error: ask again.
+        keys = (batch.UnprocessedKeys?.[tables.jobs]?.Keys ?? []) as Record<string, unknown>[];
+        if (keys.length > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 20 * attempt));
         }
       }
     }
