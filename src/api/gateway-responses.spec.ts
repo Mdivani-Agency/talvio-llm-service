@@ -45,6 +45,7 @@ describe('serverless.ts', () => {
       provider: { iam?: unknown };
       functions: { api: { role?: string }; authorizer: { role?: string } };
     };
+    type Env = { provider: { environment: Record<string, string> } };
     const originalArgv = process.argv;
     const loadFor = (stageArgs: string[]): Roles => {
       process.argv = [...originalArgv, ...stageArgs];
@@ -74,6 +75,33 @@ describe('serverless.ts', () => {
       const loaded = loadFor(['--stage', 'local']);
       expect(loaded.functions.api.role).toBeUndefined();
       expect(loaded.functions.authorizer.role).toBeUndefined();
+    });
+
+    it.each(['dev', 'prod'])(
+      'reads the %s table names from SSM and uses the DynamoDB store',
+      (stage) => {
+        const { provider } = loadFor(['--stage', stage]) as unknown as Env;
+        expect(provider.environment).toMatchObject({
+          LLM_JOBS_TABLE: `\${ssm:/${stage}/dynamodb/llm-jobs}`,
+          LLM_SESSIONS_TABLE: `\${ssm:/${stage}/dynamodb/llm-sessions}`,
+          LLM_QUOTAS_TABLE: `\${ssm:/${stage}/dynamodb/llm-quotas}`,
+          LLM_OUTBOX_TABLE: `\${ssm:/${stage}/dynamodb/llm-outbox}`,
+        });
+        const custom = (
+          loadFor(['--stage', stage]) as unknown as Record<
+            string,
+            Record<string, Record<string, string>>
+          >
+        ).custom;
+        expect(custom?.[stage]?.storeDriver).toBe('dynamodb');
+      },
+    );
+
+    it('references no table in SSM for local runs', () => {
+      const { provider } = loadFor(['--stage', 'local']) as unknown as Env;
+      expect(Object.keys(provider.environment).filter((name) => name.endsWith('_TABLE'))).toEqual(
+        [],
+      );
     });
   });
 });

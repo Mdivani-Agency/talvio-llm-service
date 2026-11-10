@@ -27,6 +27,15 @@ jobs:
   check:
     name: lint + typecheck + test
     runs-on: ubuntu-latest
+    # DynamoDB Local for the store tests (src/lib/store/dynamo/dynamo.spec.ts). The image is
+    # amazon/dynamodb-local; -inMemory keeps it stateless.
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local:2.5.4
+        ports:
+          - 8000:8000
+    env:
+      TEST_DYNAMODB_ENDPOINT: http://localhost:8000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

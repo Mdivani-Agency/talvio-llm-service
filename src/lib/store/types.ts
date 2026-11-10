@@ -12,11 +12,13 @@ import type {
   SourceSnapshot,
 } from '@talvio/llm-contracts';
 
+import type { Plan } from '../plans';
+
 /*
  * Persistence boundary of the API. Every read and write is scoped by `ownerId`: a record owned
  * by someone else is indistinguishable from a missing one, so ownership cannot be skipped by a
- * handler. The DynamoDB implementation (MDI-214; tables owned by Terraform, MDI-213) replaces the
- * memory and unconfigured stores without changing these interfaces.
+ * handler. The DynamoDB implementation (src/lib/store/dynamo; tables owned by Terraform) and the
+ * memory store used by unit tests implement the same interfaces.
  */
 
 export type JobStage =
@@ -41,6 +43,13 @@ export type JobRecord = {
   idempotencyKey: string;
   /** Hash of the canonical admitted request; replays must match it. */
   requestHash: string;
+  /** Plan the job was admitted under; retries resolve their limits from it. */
+  plan: Plan;
+  /** Hard cap for this job and the part of it still reserved or already spent (micro-USD). */
+  budgetCapMicroUsd: number;
+  spendReservedMicroUsd: number;
+  spendCommittedMicroUsd: number;
+  pricingVersion: string;
   createdAt: Date;
   updatedAt: Date;
   deadlineAt: Date;
@@ -56,8 +65,17 @@ export class IdempotencyConflictError extends Error {
   }
 }
 
+/** The opaque list cursor was not produced by this store for this user. */
+export class InvalidCursorError extends Error {
+  constructor() {
+    super('Invalid cursor');
+    this.name = 'InvalidCursorError';
+  }
+}
+
 export type AdmitJobInput = {
   ownerId: string;
+  plan: Plan;
   idempotencyKey: string;
   requestHash: string;
   request: CreateJobRequest;
@@ -68,9 +86,10 @@ export type AdmitJobInput = {
 export interface JobStore {
   findByIdempotencyKey(ownerId: string, idempotencyKey: string): Promise<JobRecord | null>;
   /**
-   * Atomically creates the job (and, with MDI-214/215, its quota holds and outbox event).
-   * Returns the existing job for a replay with the same hash and throws
-   * IdempotencyConflictError for the same key with a different hash.
+   * Atomically creates the job, its quota and spend reservation and its outbox event, or none
+   * of them. Returns the existing job for a replay with the same hash (a replay consumes no
+   * quota), throws IdempotencyConflictError for the same key with a different hash and
+   * QuotaExceededError when a limit would be crossed.
    */
   admit(input: AdmitJobInput): Promise<{ job: JobRecord; replayed: boolean }>;
   get(ownerId: string, jobId: string): Promise<JobRecord | null>;
@@ -79,11 +98,30 @@ export interface JobStore {
     cursor: string | null,
     limit: number,
   ): Promise<{ jobs: JobRecord[]; nextCursor: string | null }>;
-  /** Moves a non-terminal job to cancelled; returns the job unchanged when already terminal. */
+  /** Moves a non-terminal job to cancelled and releases its slot and reservation; a terminal job is returned unchanged. */
   cancel(ownerId: string, jobId: string, now: Date): Promise<JobRecord | null>;
-  /** Requeues a failed job; eligibility is checked by the caller. */
+  /**
+   * Requeues a failed job, taking an active slot and a new reservation (QuotaExceededError when
+   * a limit would be crossed). Eligibility is checked by the caller.
+   */
   retry(ownerId: string, jobId: string, now: Date): Promise<JobRecord | null>;
+  /** Removes the job, its result and its idempotency record, releasing a held slot and reservation. */
   delete(ownerId: string, jobId: string): Promise<boolean>;
+}
+
+export type OutboxEvent = {
+  eventId: string;
+  type: 'job.admitted' | 'job.retried';
+  ownerId: string;
+  jobId: string;
+  operation: Operation;
+  createdAt: Date;
+};
+
+/** Events written with the job in one transaction; the dispatcher (MDI-215) hands them to the work queues. */
+export interface OutboxStore {
+  pending(limit: number): Promise<OutboxEvent[]>;
+  markDispatched(event: OutboxEvent, now: Date): Promise<void>;
 }
 
 export type DocumentRecord = {
@@ -175,6 +213,12 @@ export interface SessionStore {
     sessionId: string,
     questionSetId: string,
   ): Promise<QuestionSetRecord | null>;
+  /** Stores a generated question set under the session's owner; null when the session is not theirs. */
+  saveQuestionSet(
+    ownerId: string,
+    set: QuestionSetRecord,
+    now: Date,
+  ): Promise<QuestionSetRecord | null>;
   /** Records an answer revision and returns the new latest context, or 'stale'. */
   addAnswers(input: {
     ownerId: string;
@@ -191,6 +235,7 @@ export interface SessionStore {
 
 export type Store = {
   jobs: JobStore;
+  outbox: OutboxStore;
   documents: DocumentStore;
   uploads: UploadGrants;
   sessions: SessionStore;

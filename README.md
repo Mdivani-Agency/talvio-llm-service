@@ -6,16 +6,16 @@ Talvio's AI orchestration service: an authenticated async job API at `https://ap
 
 ## Layout
 
-| Path                                  | Contents                                                                                                    |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `packages/contracts`                  | `@talvio/llm-contracts`: request/result schemas, OpenAPI, fixtures ([docs/contracts.md](docs/contracts.md)) |
-| `src/handler.ts`                      | Lambda entry; validates configuration once per container                                                    |
-| `src/api/route-table.ts`              | Every route; `serverless.ts` creates one API Gateway event per entry                                        |
-| `src/api/app.ts`                      | Request pipeline: correlation id, authentication, active-account check, body parsing, safe errors, logging  |
-| `src/api/handlers/`                   | Documents, sessions and jobs                                                                                |
-| `src/lib/auth.ts`                     | Supabase JWT verification                                                                                   |
-| `src/lib/store/`                      | Owner-scoped store interfaces, plus the `memory` (local/test) and `unconfigured` implementations            |
-| `src/lib/config.ts`, `src/lib/log.ts` | Configuration validation and content-free logging                                                           |
+| Path                                  | Contents                                                                                                                                         |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `packages/contracts`                  | `@talvio/llm-contracts`: request/result schemas, OpenAPI, fixtures ([docs/contracts.md](docs/contracts.md))                                      |
+| `src/handler.ts`                      | Lambda entry; validates configuration once per container                                                                                         |
+| `src/api/route-table.ts`              | Every route; `serverless.ts` creates one API Gateway event per entry                                                                             |
+| `src/api/app.ts`                      | Request pipeline: correlation id, authentication, active-account check, body parsing, safe errors, logging                                       |
+| `src/api/handlers/`                   | Documents, sessions and jobs                                                                                                                     |
+| `src/lib/auth.ts`                     | Supabase JWT verification                                                                                                                        |
+| `src/lib/store/`                      | Owner-scoped store interfaces; `dynamo/` (deployed), `memory` (local/test) and `unconfigured` implementations; `limits.ts` holds per-plan limits |
+| `src/lib/config.ts`, `src/lib/log.ts` | Configuration validation and content-free logging                                                                                                |
 
 ## Commands
 
@@ -42,15 +42,28 @@ yarn start              # serverless-offline on :3005 with the memory store (nee
 
 ## Stages and configuration
 
-| Variable                                                                          | Source                                          | Notes                                                                 |
-| --------------------------------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------- |
-| `STAGE`                                                                           | `--stage`                                       | `local`, `test`, `dev`, `prod`                                        |
-| `SUPABASE_URL`                                                                    | SSM `/<stage>/supabase/url` (local: shell/.env) | https outside local/test                                              |
-| `STORE_DRIVER`                                                                    | `serverless.ts` per stage                       | `unconfigured` on dev/prod until MDI-214; `memory` only on local/test |
-| `SUPABASE_JWT_AUDIENCE`, `SUPABASE_JWT_ALGORITHMS`, `MAX_BODY_BYTES`, `LOG_LEVEL` | defaults                                        | see `src/lib/config.ts`                                               |
+| Variable                                                                          | Source                                          | Notes                                                                           |
+| --------------------------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------- |
+| `STAGE`                                                                           | `--stage`                                       | `local`, `test`, `dev`, `prod`                                                  |
+| `SUPABASE_URL`                                                                    | SSM `/<stage>/supabase/url` (local: shell/.env) | https outside local/test                                                        |
+| `STORE_DRIVER`                                                                    | `serverless.ts` per stage                       | `dynamodb` on dev/prod; `memory` only on local/test; `unconfigured` answers 503 |
+| `LLM_{JOBS,SESSIONS,QUOTAS,OUTBOX}_TABLE`                                         | SSM `/<stage>/dynamodb/llm-*` (dev/prod)        | Terraform-owned tables; required by the `dynamodb` driver                       |
+| `ACCOUNT_DAILY_CEILING_MICRO_USD`                                                 | default `5000000` (USD 5)                       | account-wide spend per UTC day; change per stage without a code change          |
+| `SUPABASE_JWT_AUDIENCE`, `SUPABASE_JWT_ALGORITHMS`, `MAX_BODY_BYTES`, `LOG_LEVEL` | defaults                                        | see `src/lib/config.ts`                                                         |
 
 An invalid configuration makes every route, health included, answer 503, and the log names only the variables that failed.
 
 ## Deploy
 
-The API is served at `api.<domain>/llm` through a base path mapping on the shared custom domain. This stack does not create the domain or its DNS record. CI runs on every pull request; deploying to dev is a manual `workflow_dispatch` with `deploy: true`. It assumes the `AWS_DEPLOY_ROLE_ARN` variable on the `dev` (or `prod`) GitHub Environment, set to the `llm_deploy_role_arn` output of talvio-terraform-iac `bootstrap/` (also SSM `/<stage>/ci/llm-deploy-role-arn`), and a Serverless Framework 4 access or license key. That role trusts only this repository's `environment:<stage>` OIDC subject, so a dev job cannot assume the prod role. Apply the Terraform platform for the stage first: the stack reads `/<stage>/llm/*` from SSM and fails fast if it is missing.
+The API is served at `api.<domain>/llm` through a base path mapping on the shared custom domain. This stack does not create the domain or its DNS record. CI runs on every pull request; deploying to dev is a manual `workflow_dispatch` with `deploy: true`. It assumes the `AWS_DEPLOY_ROLE_ARN` variable on the `dev` (or `prod`) GitHub Environment, set to the `llm_deploy_role_arn` output of talvio-terraform-iac's main root (also SSM `/<stage>/ci/llm-deploy-role-arn`), and a Serverless Framework 4 access or license key. That role trusts only this repository's `environment:<stage>` OIDC subject, so a dev job cannot assume the prod role. Apply the Terraform platform for the stage first: the stack reads `/<stage>/llm/*` from SSM and fails fast if it is missing.
+
+## State, quotas and retention (MDI-214)
+
+All state is in the four Terraform-owned DynamoDB tables (`src/lib/store/dynamo/db.ts` documents the key layout). Every key starts with the owner, every read and write is owner-scoped, and no access pattern scans.
+
+- **Admission** is one `TransactWriteItems`: the job, its idempotency record, the quota and spend holds (user day, user active, account day) and the outbox event. A replay is answered before any of that and consumes no quota. Transactions are never held across model or OCR calls.
+- **Limits** come from `src/lib/limits.ts` (20 jobs per UTC day, 2 active, USD 1.00 per day, USD 0.05 per job, planning budget USD 0.10, account ceiling) by the token's `plan`, and a per-user override item (`U#<user>` / `LIMITS` in the quotas table, any subset of the fields) changes them without a deploy.
+- **Retention** is DynamoDB TTL on `expiresAt`: incomplete uploads 24 h, result payloads, sessions, documents and answers 7 days, job metadata, idempotency records and outbox events 30 days. TTL deletion can lag, so reads also treat an expired item as missing.
+- **Outbox** events sit in a sparse index until the dispatcher (MDI-215) marks them dispatched.
+
+Tests: the same contract suite (`src/lib/store/store.contract.ts`) runs on the memory store and, when `TEST_DYNAMODB_ENDPOINT` is set, on DynamoDB Local. CI starts DynamoDB Local as a service container; locally, point the variable at any DynamoDB Local (`http://localhost:8000`).

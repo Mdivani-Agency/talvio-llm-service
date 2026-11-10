@@ -50,6 +50,23 @@ const roleArn = (role: 'api' | 'authorizer'): string | undefined => {
   return stage === 'dev' || stage === 'prod' ? `\${ssm:/${stage}/llm/${role}-role-arn}` : undefined;
 };
 
+/**
+ * Terraform-owned DynamoDB table names, read from SSM /<stage>/dynamodb/llm-<table> on dev and
+ * prod only (see selectedStage). Local runs use the memory store, or DynamoDB Local through the
+ * shell's LLM_*_TABLE and DYNAMODB_ENDPOINT variables.
+ */
+const tableEnv = (): Record<string, string> => {
+  const stage = selectedStage();
+  if (stage !== 'dev' && stage !== 'prod') return {};
+  const table = (name: string) => `\${ssm:/${stage}/dynamodb/llm-${name}}`;
+  return {
+    LLM_JOBS_TABLE: table('jobs'),
+    LLM_SESSIONS_TABLE: table('sessions'),
+    LLM_QUOTAS_TABLE: table('quotas'),
+    LLM_OUTBOX_TABLE: table('outbox'),
+  };
+};
+
 const AUTHORIZER = {
   name: 'authorizer',
   type: 'token',
@@ -111,6 +128,7 @@ const serverlessConfiguration: ServerlessV4 = {
       // Local runs read SUPABASE_URL from the shell; deployed stages read SSM.
       SUPABASE_URL: '${env:SUPABASE_URL, ssm:/${self:provider.stage}/supabase/url}',
       STORE_DRIVER: '${self:custom.${self:provider.stage}.storeDriver, "unconfigured"}',
+      ...tableEnv(),
       NODE_OPTIONS: '--enable-source-maps',
     },
     apiGateway: {
@@ -158,11 +176,11 @@ const serverlessConfiguration: ServerlessV4 = {
     local: { domainName: 'dev.talvio.co', storeDriver: 'memory', customDomainEnabled: false },
     dev: {
       domainName: 'dev.talvio.co',
-      storeDriver: 'unconfigured',
+      storeDriver: 'dynamodb',
     },
     prod: {
       domainName: 'talvio.co',
-      storeDriver: 'unconfigured',
+      storeDriver: 'dynamodb',
     },
     customDomain: {
       rest: {
