@@ -29,6 +29,14 @@ export type LogFields = {
   step?: string;
   count?: number;
   failed?: number;
+  /** Provider call accounting: content-free ids, token counts and money. */
+  requestId?: string;
+  promptVersion?: string;
+  modelId?: string;
+  stopReason?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  costMicroUsd?: number;
 };
 
 const ORDER: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 };

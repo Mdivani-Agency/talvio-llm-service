@@ -114,6 +114,12 @@ export function describeStoreContract(name: string, make: MakeHarness) {
         ]);
       });
 
+      it('keeps the admitted request for its owner only', async () => {
+        const { job } = await admit(alice, 'key-00000001');
+        expect(await h.store.jobs.input(alice, job.jobId)).toEqual(request('key-00000001'));
+        expect(await h.store.jobs.input(bob, job.jobId)).toBeNull();
+      });
+
       it('returns the same job for the same key and request, without a second hold or event', async () => {
         await h.setLimitOverride(alice, { ...WIDE, jobsPerDay: 2 });
         const first = await admit(alice, 'key-00000001');
@@ -345,6 +351,7 @@ export function describeStoreContract(name: string, make: MakeHarness) {
         await admit(alice, 'key-00000002');
         expect(await h.store.jobs.delete(alice, one.job.jobId)).toBe(true);
         expect(await h.store.jobs.get(alice, one.job.jobId)).toBeNull();
+        expect(await h.store.jobs.input(alice, one.job.jobId)).toBeNull();
         expect(await h.store.jobs.findByIdempotencyKey(alice, 'key-00000001')).toBeNull();
         expect(await h.store.jobs.delete(alice, one.job.jobId)).toBe(false);
         await expect(admit(alice, 'key-00000003')).resolves.toMatchObject({ replayed: false });

@@ -115,6 +115,11 @@ export interface JobStore {
     input: AdmitJobInput,
   ): Promise<{ job: JobRecord; replayed: boolean; event: OutboxEvent | null }>;
   get(ownerId: string, jobId: string): Promise<JobRecord | null>;
+  /**
+   * The admitted request, kept as content (7 days) beside the job so the worker can read its input.
+   * Null once it has aged out or the job is gone.
+   */
+  input(ownerId: string, jobId: string): Promise<CreateJobRequest | null>;
   list(
     ownerId: string,
     cursor: string | null,
@@ -232,6 +237,8 @@ export type DocumentArtifact = {
   versionId: string | null;
   sha256: string;
   chars: number;
+  /** UTF-8 size of the text; bounds the model input at admission. Absent on older records. */
+  bytes?: number;
   extractorVersion: string;
   method: 'docx' | 'ocr';
 };

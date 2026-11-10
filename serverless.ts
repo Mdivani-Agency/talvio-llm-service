@@ -73,6 +73,17 @@ const bucketEnv = (): Record<string, string> => {
   };
 };
 
+/** Bedrock source Region and the pinned input guardrail (Terraform modules/llm); none for local runs. */
+const modelEnv = (): Record<string, string> => {
+  const stage = selectedStage();
+  if (stage !== 'dev' && stage !== 'prod') return {};
+  return {
+    BEDROCK_REGION: `\${ssm:/${stage}/llm/bedrock-region}`,
+    GUARDRAIL_ID: `\${ssm:/${stage}/llm/guardrail-id}`,
+    GUARDRAIL_VERSION: `\${ssm:/${stage}/llm/guardrail-version}`,
+  };
+};
+
 const queueEnv = (): Record<string, string> => {
   const stage = selectedStage();
   if (stage !== 'dev' && stage !== 'prod') return {};
@@ -185,6 +196,7 @@ const serverlessConfiguration: ServerlessV4 = {
       PIPELINE_RELEASE: CURRENT_RELEASE,
       ...queueEnv(),
       ...bucketEnv(),
+      ...modelEnv(),
       ...tableEnv(),
       NODE_OPTIONS: '--enable-source-maps',
     },

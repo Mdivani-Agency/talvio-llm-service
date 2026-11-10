@@ -4,7 +4,9 @@ import { createTextractClient } from '../lib/ocr';
 import { createLogger, type Logger } from '../lib/log';
 import { createNoQueues, createSqsQueues, type WorkQueues } from '../lib/queue';
 import { createStore, type Store } from '../lib/store';
+import { createBedrockGuardrail, createBedrockModel } from '../lib/model/client';
 import type { OcrConfig } from './ocr';
+import { createParseExecutor } from './parse';
 import type { Executors } from './run';
 
 /*
@@ -28,11 +30,26 @@ export type Runtime = {
 };
 
 /**
- * Executors by operation for this pipeline release. Each operation's executor arrives with its own
- * ticket (extraction and OCR, safeguard, inference, validation); until then a claimed job fails at
- * once with a retryable `dependency_unavailable` instead of waiting out its deadline.
+ * Executors by operation for this pipeline release. An operation without one (not built yet, or
+ * its guardrail is not configured) fails at once with a retryable `dependency_unavailable` instead
+ * of waiting out its deadline.
  */
-export const EXECUTORS: Executors = {};
+export function createExecutors(deps: {
+  config: Config;
+  store: Store;
+  blobs: BlobStore;
+  logger: Logger;
+}): Executors {
+  const { config } = deps;
+  if (!config.GUARDRAIL_ID || !config.GUARDRAIL_VERSION) return {};
+  const model = createBedrockModel(config.BEDROCK_REGION);
+  const guardrail = createBedrockGuardrail(
+    config.BEDROCK_REGION,
+    config.GUARDRAIL_ID,
+    config.GUARDRAIL_VERSION,
+  );
+  return { parse_document: createParseExecutor({ ...deps, model, guardrail }) };
+}
 
 let cached: Runtime | undefined;
 
@@ -44,14 +61,17 @@ export function getRuntime(): Runtime {
 
 export function createRuntime(): Runtime {
   const config = loadConfig();
+  const store = createStore(config);
+  const blobs = createBlobs(config);
+  const logger = createLogger(config.LOG_LEVEL);
   return {
     config,
-    store: createStore(config),
-    blobs: createBlobs(config),
+    store,
+    blobs,
     currentRelease: config.PIPELINE_RELEASE,
     queues: config.WORK_QUEUE_URLS ? createSqsQueues(config.WORK_QUEUE_URLS) : createNoQueues(),
-    logger: createLogger(config.LOG_LEVEL),
-    executors: EXECUTORS,
+    logger,
+    executors: createExecutors({ config, store, blobs, logger }),
     ocr:
       config.OCR_CONTENT_TYPES.length > 0 &&
       config.OCR_TOPIC_ARN &&

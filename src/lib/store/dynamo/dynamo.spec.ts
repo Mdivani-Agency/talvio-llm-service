@@ -297,6 +297,7 @@ suite('DynamoDB', () => {
       expect((await read(tables.jobs, `JOB#${job.jobId}`))?.expiresAt).toBe(at + 30 * day);
       expect((await read(tables.jobs, `IDEM#key-ttl-0001`))?.expiresAt).toBe(at + 30 * day);
       expect((await read(tables.jobs, `RESULT#${job.jobId}`))?.expiresAt).toBe(at + 7 * day);
+      expect((await read(tables.jobs, `INPUT#${job.jobId}`))?.expiresAt).toBe(at + 7 * day);
       const bucket = await read(tables.quotas, `DAY#${utcDay(now)}`);
       expect(bucket?.expiresAt).toBeGreaterThan(at);
     });

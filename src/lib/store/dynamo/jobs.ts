@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import type { CreateJobRequest } from '@talvio/llm-contracts';
 
 import { BatchGetCommand, GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 
@@ -38,6 +39,7 @@ import {
   idemKey,
   jobKey,
   resultKey,
+  inputKey,
   toRecord,
   type JobItem,
   type ResultItem,
@@ -105,6 +107,18 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
       }),
     );
     return Item && !isExpired(Item, now) ? ((Item as ResultItem).result ?? null) : null;
+  }
+
+  async function loadInput(ownerId: string, jobId: string, now = new Date()) {
+    if (!(await loadItem(ownerId, jobId, now))) return null;
+    const { Item } = await client.send(
+      new GetCommand({
+        TableName: tables.jobs,
+        Key: inputKey(ownerId, jobId),
+        ConsistentRead: true,
+      }),
+    );
+    return Item && !isExpired(Item, now) ? ((Item.request as CreateJobRequest) ?? null) : null;
   }
 
   async function load(ownerId: string, jobId: string, now = new Date()): Promise<JobRecord | null> {
@@ -237,6 +251,17 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
         ...takeQuota(db, ownerId, take),
         { Put: { TableName: tables.outbox, Item: eventItem(event, expiresAt) } },
         sweepPut(db, { ownerId, jobId, deadlineAt }, new Date(now.getTime() + DISPATCH_GRACE_MS)),
+        // Last, so the index-based failure checks above keep their positions.
+        {
+          Put: {
+            TableName: tables.jobs,
+            Item: {
+              ...inputKey(ownerId, jobId),
+              request,
+              expiresAt: epochSeconds(now) + RETENTION_MS.content / 1000,
+            },
+          },
+        },
       ]);
     } catch (error) {
       if (failedAt(error, 1)) {
@@ -448,6 +473,7 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
           },
           { Delete: { TableName: tables.jobs, Key: idemKey(ownerId, job.idempotencyKey) } },
           { Delete: { TableName: tables.jobs, Key: resultKey(ownerId, jobId) } },
+          { Delete: { TableName: tables.jobs, Key: inputKey(ownerId, jobId) } },
           ...(held(job) ? releaseQuota(db, ownerId, job, utcDay(job.createdAt)) : []),
           sweepDelete(db, ownerId, jobId),
         ]);
@@ -465,6 +491,7 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
     findByIdempotencyKey,
     admit,
     get: (ownerId, jobId) => load(ownerId, jobId),
+    input: (ownerId, jobId) => loadInput(ownerId, jobId),
     list,
     cancel,
     retry,

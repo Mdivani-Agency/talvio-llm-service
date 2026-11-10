@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 
 import { LIMITS, TERMINAL_JOB_STATUSES } from '@talvio/llm-contracts';
+import type { CreateJobRequest } from '@talvio/llm-contracts';
 
 import { DISPATCH_GRACE_MS, MAX_STEP_ATTEMPTS, abandonable } from '../execution';
 import { answeredContext, firstContext } from './context';
@@ -57,6 +58,7 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
   /** When each live job is next looked at by the reconciler (the DynamoDB store keeps this as a sparse index). */
   const checks = new Map<string, Date>();
   const jobs = new Map<string, JobRecord>();
+  const inputs = new Map<string, CreateJobRequest>();
   const documents = new Map<string, DocumentRecord>();
   const sessions = new Map<string, SessionRecord>();
   const questionSets = new Map<string, QuestionSetRecord>();
@@ -243,9 +245,14 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
           },
         };
         jobs.set(job.jobId, job);
+        inputs.set(job.jobId, structuredClone(request));
         const event = emit('job.admitted', job, now);
         watch(job, new Date(now.getTime() + DISPATCH_GRACE_MS));
         return { job, replayed: false, event };
+      },
+      async input(ownerId, jobId) {
+        const request = owned(jobs.get(jobId), ownerId) ? inputs.get(jobId) : undefined;
+        return request ? structuredClone(request) : null;
       },
       async get(ownerId, jobId) {
         return owned(jobs.get(jobId), ownerId);
@@ -294,7 +301,9 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
       },
       async delete(ownerId, jobId) {
         checks.delete(jobId);
-        return owned(jobs.get(jobId), ownerId) ? jobs.delete(jobId) : false;
+        if (!owned(jobs.get(jobId), ownerId)) return false;
+        inputs.delete(jobId);
+        return jobs.delete(jobId);
       },
     },
 

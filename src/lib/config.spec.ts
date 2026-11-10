@@ -25,6 +25,20 @@ describe('loadConfig', () => {
     }
   });
 
+  it('takes the guardrail id and version together, with us-west-1 as the Bedrock Region', () => {
+    expect(loadConfig(base).BEDROCK_REGION).toBe('us-west-1');
+    expect(() => loadConfig({ ...base, GUARDRAIL_ID: 'gr-1' })).toThrow(
+      new ConfigError(['GUARDRAIL_ID']),
+    );
+    expect(loadConfig({ ...base, GUARDRAIL_ID: 'gr-1', GUARDRAIL_VERSION: '3' })).toMatchObject({
+      GUARDRAIL_ID: 'gr-1',
+      GUARDRAIL_VERSION: '3',
+    });
+    expect(() => loadConfig({ ...base, GUARDRAIL_ID: 'gr-1', GUARDRAIL_VERSION: 'DRAFT' })).toThrow(
+      ConfigError,
+    );
+  });
+
   it('requires a stage and a Supabase URL', () => {
     expect(() => loadConfig({})).toThrow(new ConfigError(['STAGE', 'SUPABASE_URL']));
   });

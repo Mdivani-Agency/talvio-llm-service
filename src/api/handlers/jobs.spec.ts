@@ -76,6 +76,15 @@ describe('POST /v1/jobs', () => {
     expect(jobSchema.parse(json(job.body))).toMatchObject({ status: 'queued', result: null });
   });
 
+  it('refuses text whose worst-case cost cannot fit the job cap, before admitting anything', async () => {
+    const long = 'Built and ran payment systems. '.repeat(3_200).slice(0, 100_000);
+    const response = await post(parseRequest('parse-00000020', long), tokenA, 'parse-00000020');
+    expect(response.statusCode).toBe(422);
+    expect(json(response.body)?.error.code).toBe('budget_exceeded_preflight');
+    expect(app.queues.sent).toHaveLength(0);
+    expect(await app.store.jobs.findByIdempotencyKey(USER_A, 'parse-00000020')).toBeNull();
+  });
+
   it('queues the work at once, and only once for a replay', async () => {
     await post(parseRequest('parse-00000010'), tokenA, 'parse-00000010');
     await post(parseRequest('parse-00000010'), tokenA, 'parse-00000010');
@@ -188,7 +197,19 @@ describe('POST /v1/jobs', () => {
     const notReady = await post(request, tokenA, 'parse-00000003');
     expect(json(notReady.body)?.error.code).toBe('unusable_document');
 
-    app.store.testing.setDocument(documentId, { status: 'ready' });
+    // Ready means extracted: the artifact's size is what admission prices.
+    app.store.testing.setDocument(documentId, {
+      status: 'ready',
+      artifact: {
+        key: 'results/x/documents/y/text.json',
+        versionId: 'v1',
+        sha256: 'b'.repeat(64),
+        chars: 8_000,
+        bytes: 8_000,
+        extractorVersion: 'docx-1',
+        method: 'docx',
+      },
+    });
     expect((await post(request, tokenA, 'parse-00000003')).statusCode).toBe(202);
   });
 
