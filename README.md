@@ -48,7 +48,7 @@ yarn start              # serverless-offline on :3005 with the memory store (nee
 | `SUPABASE_URL`                                                                    | SSM `/<stage>/supabase/url` (local: shell/.env) | https outside local/test                                                        |
 | `STORE_DRIVER`                                                                    | `serverless.ts` per stage                       | `dynamodb` on dev/prod; `memory` only on local/test; `unconfigured` answers 503 |
 | `LLM_{JOBS,SESSIONS,QUOTAS,OUTBOX}_TABLE`                                         | SSM `/<stage>/dynamodb/llm-*` (dev/prod)        | Terraform-owned tables; required by the `dynamodb` driver                       |
-| `ACCOUNT_DAILY_CEILING_MICRO_USD`                                                 | default `25000000` (USD 25)                     | account-wide spend per UTC day; set per stage when the real ceiling is decided  |
+| `ACCOUNT_DAILY_CEILING_MICRO_USD`                                                 | default `5000000` (USD 5)                       | account-wide spend per UTC day; change per stage without a code change          |
 | `SUPABASE_JWT_AUDIENCE`, `SUPABASE_JWT_ALGORITHMS`, `MAX_BODY_BYTES`, `LOG_LEVEL` | defaults                                        | see `src/lib/config.ts`                                                         |
 
 An invalid configuration makes every route, health included, answer 503, and the log names only the variables that failed.

@@ -82,7 +82,7 @@ describe('loadConfig', () => {
     });
 
     it('reads the account-wide daily ceiling', () => {
-      expect(loadConfig(base).ACCOUNT_DAILY_CEILING_MICRO_USD).toBe(25_000_000);
+      expect(loadConfig(base).ACCOUNT_DAILY_CEILING_MICRO_USD).toBe(5_000_000);
       expect(
         loadConfig({ ...base, ACCOUNT_DAILY_CEILING_MICRO_USD: '5000000' })
           .ACCOUNT_DAILY_CEILING_MICRO_USD,

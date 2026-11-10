@@ -40,7 +40,7 @@ export const PLAN_LIMITS: Record<Plan, UserLimits> = {
 };
 
 /** Account-wide spend ceiling per UTC day, used when ACCOUNT_DAILY_CEILING_MICRO_USD is unset. */
-export const DEFAULT_ACCOUNT_DAILY_CEILING_MICRO_USD = 25_000_000;
+export const DEFAULT_ACCOUNT_DAILY_CEILING_MICRO_USD = 5_000_000;
 
 const amount = z.number().int().min(0).max(1_000_000_000);
 

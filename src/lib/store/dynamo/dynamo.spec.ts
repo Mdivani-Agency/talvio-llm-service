@@ -77,7 +77,13 @@ suite('DynamoDB', () => {
 
   // Every test gets fresh users, so tables are shared and never need clearing.
   describeStoreContract('DynamoDB', async (options) => {
-    const store = createDynamoStore({ tables, endpoint, ...options });
+    const store = createDynamoStore({
+      tables,
+      endpoint,
+      // The account counter is shared by every test on the shared table and day.
+      accountDailyCeilingMicroUsd: 1_000_000_000,
+      ...options,
+    });
     return {
       store,
       async setLimitOverride(ownerId, override) {
