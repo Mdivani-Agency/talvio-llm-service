@@ -96,6 +96,8 @@ describe('without the API Gateway authorizer', () => {
     store: createMemoryStore(),
     logger: createLogger('error', () => undefined),
     maxBodyBytes: 1_000_000,
+    pipelineReleaseId: 'v1',
+    dispatch: async () => undefined,
   });
 
   it('refuses a protected route whose event has no authorizer context', async () => {

@@ -20,11 +20,17 @@ type EventItem = {
   ownerId: string;
   jobId: string;
   operation: OutboxEvent['operation'];
+  pipelineReleaseId: string;
   createdAt: string;
+  availableAt: string;
 };
 
 const eventSort = (event: Pick<OutboxEvent, 'createdAt' | 'eventId'>) =>
   `${event.createdAt.toISOString()}#${event.eventId}`;
+
+/** Index order is due time, so a delayed retry sorts after the present and is skipped until then. */
+const dueSort = (event: Pick<OutboxEvent, 'availableAt' | 'eventId'>) =>
+  `${event.availableAt.toISOString()}#${event.eventId}`;
 
 /** The outbox item for an event. Content-free: ids, an operation name and a time. */
 export function eventItem(event: OutboxEvent, expiresAt: number) {
@@ -32,13 +38,15 @@ export function eventItem(event: OutboxEvent, expiresAt: number) {
     pk: userKey(event.ownerId),
     sk: `EVT#${eventSort(event)}`,
     gsi1pk: `PENDING#${shardOf(event.jobId)}`,
-    gsi1sk: eventSort(event),
+    gsi1sk: dueSort(event),
     eventId: event.eventId,
     type: event.type,
     ownerId: event.ownerId,
     jobId: event.jobId,
     operation: event.operation,
+    pipelineReleaseId: event.pipelineReleaseId,
     createdAt: event.createdAt.toISOString(),
+    availableAt: event.availableAt.toISOString(),
     expiresAt,
   };
 }
@@ -49,15 +57,18 @@ export function eventItem(event: OutboxEvent, expiresAt: number) {
  */
 export function createDynamoOutboxStore(db: Db): OutboxStore {
   return {
-    async pending(limit) {
+    async pending(limit, now) {
       const pages = await Promise.all(
         Array.from({ length: OUTBOX_SHARDS }, (_, shard) =>
           db.client.send(
             new QueryCommand({
               TableName: db.tables.outbox,
               IndexName: 'GSI1',
-              KeyConditionExpression: 'gsi1pk = :shard',
-              ExpressionAttributeValues: { ':shard': `PENDING#${shard}` },
+              KeyConditionExpression: 'gsi1pk = :shard AND gsi1sk <= :now',
+              ExpressionAttributeValues: {
+                ':shard': `PENDING#${shard}`,
+                ':now': `${now.toISOString()}#\uffff`,
+              },
               Limit: limit,
             }),
           ),
@@ -73,7 +84,9 @@ export function createDynamoOutboxStore(db: Db): OutboxStore {
           ownerId: item.ownerId,
           jobId: item.jobId,
           operation: item.operation,
+          pipelineReleaseId: item.pipelineReleaseId,
           createdAt: new Date(item.createdAt),
+          availableAt: new Date(item.availableAt),
         }));
     },
     async markDispatched(event, now) {

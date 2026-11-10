@@ -30,6 +30,24 @@ const configSchema = z
     LLM_SESSIONS_TABLE: z.string().min(1).optional(),
     LLM_QUOTAS_TABLE: z.string().min(1).optional(),
     LLM_OUTBOX_TABLE: z.string().min(1).optional(),
+    /** Release new jobs are pinned to; its queue, DLQ and executables finish them (design §8). */
+    PIPELINE_RELEASE: z
+      .string()
+      .regex(/^[a-z0-9]+$/)
+      .default('v1'),
+    /** JSON object of release id to work queue URL, read from SSM /<stage>/llm/work-queue-url-<release>. */
+    WORK_QUEUE_URLS: z
+      .string()
+      .optional()
+      .transform((value, ctx) => {
+        if (value === undefined) return undefined;
+        try {
+          return z.record(z.string(), z.url()).parse(JSON.parse(value));
+        } catch {
+          ctx.addIssue({ code: 'custom', message: 'WORK_QUEUE_URLS must map release ids to URLs' });
+          return z.NEVER;
+        }
+      }),
     /** DynamoDB Local for CI and local runs. Refused on deployed stages. */
     DYNAMODB_ENDPOINT: z.url({ protocol: /^https?$/ }).optional(),
     /** Account-wide spend ceiling per UTC day, in micro-USD. */
@@ -62,6 +80,17 @@ const configSchema = z
       message:
         'the dynamodb store needs LLM_JOBS_TABLE, LLM_SESSIONS_TABLE, LLM_QUOTAS_TABLE and LLM_OUTBOX_TABLE',
       path: ['STORE_DRIVER'],
+    },
+  )
+  .refine(
+    (config) =>
+      config.WORK_QUEUE_URLS
+        ? config.PIPELINE_RELEASE in config.WORK_QUEUE_URLS
+        : config.STORE_DRIVER !== 'dynamodb' || config.STAGE === 'local' || config.STAGE === 'test',
+    {
+      message:
+        'WORK_QUEUE_URLS needs an entry for PIPELINE_RELEASE (required for the dynamodb store outside local and test)',
+      path: ['WORK_QUEUE_URLS'],
     },
   )
   .refine((config) => !config.DYNAMODB_ENDPOINT || ['local', 'test'].includes(config.STAGE), {

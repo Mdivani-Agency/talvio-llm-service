@@ -9,6 +9,7 @@ import { GATEWAY_ERRORS, GATEWAY_HEADERS, gatewayBody } from '../api/gateway-res
 import { ROUTE_TABLE } from '../api/route-table';
 import { createTokenVerifier, type TokenVerifier } from '../lib/auth';
 import { createLogger } from '../lib/log';
+import { createMemoryQueues, dispatchEvent } from '../lib/queue';
 import { createMemoryStore, type MemoryStore } from '../lib/store/memory';
 import type { Store } from '../lib/store';
 
@@ -122,6 +123,7 @@ export type TestApp = {
   /** The function behind a stand-in for API Gateway: the authorizer runs first, as deployed. */
   handle(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult>;
   store: MemoryStore;
+  queues: ReturnType<typeof createMemoryQueues>;
   key: SigningKey;
   logs: string[];
   tokenFor(userId: string, options?: Partial<TokenOptions>): Promise<string>;
@@ -146,10 +148,14 @@ export async function testApp(
   const logs: string[] = [];
   const store = createMemoryStore();
   const logger = createLogger('debug', (line) => logs.push(line));
+  const queues = createMemoryQueues();
   const app = createApp({
     store: options.store ?? store,
     logger,
     maxBodyBytes: options.maxBodyBytes ?? 1_000_000,
+    pipelineReleaseId: 'v1',
+    dispatch: (event) =>
+      dispatchEvent({ store: options.store ?? store, queues }, event, new Date()),
   });
   const authorize = createAuthorizer({
     logger,
@@ -202,6 +208,7 @@ export async function testApp(
   return {
     handle,
     store,
+    queues,
     key,
     logs,
     tokenFor: (userId, extra = {}) => token({ key, sub: userId, ...extra }),

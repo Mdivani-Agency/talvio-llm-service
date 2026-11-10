@@ -3,6 +3,7 @@ import type { Store } from '../types';
 import { createDb, type Tables } from './db';
 import { createDynamoDocumentStore } from './documents';
 import { createDynamoJobStore, type DynamoJobStoreOptions } from './jobs';
+import { createDynamoExecutionStore } from './execution';
 import { createDynamoOutboxStore } from './outbox';
 import { createDynamoSessionStore } from './sessions';
 
@@ -20,6 +21,7 @@ export function createDynamoStore(options: DynamoStoreOptions): DynamoStore {
   return {
     jobs: createDynamoJobStore(db, options),
     outbox: createDynamoOutboxStore(db),
+    execution: createDynamoExecutionStore(db),
     documents: createDynamoDocumentStore(db),
     sessions: createDynamoSessionStore(db),
     uploads: createUnconfiguredStore().uploads,

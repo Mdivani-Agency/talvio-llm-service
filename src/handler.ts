@@ -3,6 +3,7 @@ import type { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { createApp } from './api/app';
 import { ConfigError, loadConfig } from './lib/config';
 import { createLogger } from './lib/log';
+import { createNoQueues, createSqsQueues, dispatchEvent } from './lib/queue';
 import { createStore } from './lib/store';
 
 /*
@@ -33,10 +34,16 @@ function unavailable(variables: string[]): Handler {
 function build(): Handler {
   try {
     const config = loadConfig();
+    const store = createStore(config);
+    const queues = config.WORK_QUEUE_URLS
+      ? createSqsQueues(config.WORK_QUEUE_URLS)
+      : createNoQueues();
     return createApp({
-      store: createStore(config),
+      store,
       logger: createLogger(config.LOG_LEVEL),
       maxBodyBytes: config.MAX_BODY_BYTES,
+      pipelineReleaseId: config.PIPELINE_RELEASE,
+      dispatch: (event) => dispatchEvent({ store, queues }, event, new Date()),
     });
   } catch (error) {
     if (error instanceof ConfigError) {

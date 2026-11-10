@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 
-import type { CreateJobRequest } from '@talvio/llm-contracts';
+import type { CreateJobRequest, JobError } from '@talvio/llm-contracts';
 
 import { QuotaExceededError, type LimitOverride } from '../limits';
 import type { Plan } from '../plans';
@@ -32,7 +32,9 @@ export type MakeHarness = (options: {
 }) => Promise<Harness>;
 
 const FREE = 'free' as Plan;
-const NOW = new Date('2026-11-10T12:00:00.000Z');
+// Noon UTC today: retention is measured against the real clock, so a fixed date would age out.
+const NOW = new Date();
+NOW.setUTCHours(12, 0, 0, 0);
 const DEADLINE = new Date(NOW.getTime() + 10 * 60 * 1000);
 
 const request = (key: string): CreateJobRequest =>
@@ -51,6 +53,9 @@ const context = (): ContextInput => ({
   contextHash: 'b'.repeat(64),
 });
 
+const expiredError = (jobId: string, code = 'deadline_exceeded'): JobError =>
+  ({ code, message: 'x', retryable: false, correlationId: jobId }) as JobError;
+
 const WIDE: LimitOverride = { jobsPerDay: 100, activeJobs: 100, dailySpendMicroUsd: 100_000_000 };
 
 export function describeStoreContract(name: string, make: MakeHarness) {
@@ -67,12 +72,15 @@ export function describeStoreContract(name: string, make: MakeHarness) {
 
     /** Undispatched events of this test's users; the outbox is system-wide. */
     const pending = async () =>
-      (await h.store.outbox.pending(1000)).filter((e) => e.ownerId === alice || e.ownerId === bob);
+      (await h.store.outbox.pending(1000, new Date(Date.now() + 1e9))).filter(
+        (e) => e.ownerId === alice || e.ownerId === bob,
+      );
 
     const admit = (owner: string, key: string, hash = `hash-${key}`, now = NOW) =>
       h.store.jobs.admit({
         ownerId: owner,
         plan: FREE,
+        pipelineReleaseId: 'v1',
         idempotencyKey: key,
         requestHash: hash,
         request: request(key),
@@ -93,6 +101,7 @@ export function describeStoreContract(name: string, make: MakeHarness) {
           status: 'queued',
           stage: 'admission',
           plan: 'free',
+          exec: expect.objectContaining({ pipelineReleaseId: 'v1', fence: 0 }),
           budgetCapMicroUsd: 50_000,
           spendReservedMicroUsd: 50_000,
           spendCommittedMicroUsd: 0,
@@ -109,7 +118,7 @@ export function describeStoreContract(name: string, make: MakeHarness) {
         await h.setLimitOverride(alice, { ...WIDE, jobsPerDay: 2 });
         const first = await admit(alice, 'key-00000001');
         const replay = await admit(alice, 'key-00000001');
-        expect(replay).toEqual({ job: first.job, replayed: true });
+        expect(replay).toEqual({ job: first.job, replayed: true, event: null });
         expect(await pending()).toHaveLength(1);
         // The replay used no quota: the day still has room for two more distinct jobs... of which one fits.
         await admit(alice, 'key-00000002');
@@ -253,6 +262,7 @@ export function describeStoreContract(name: string, make: MakeHarness) {
           h.store.jobs.admit({
             ownerId: carol,
             plan: FREE,
+            pipelineReleaseId: 'v1',
             idempotencyKey: 'key-00000001',
             requestHash: 'h3',
             request: request('key-00000001'),
@@ -284,6 +294,7 @@ export function describeStoreContract(name: string, make: MakeHarness) {
           h.store.jobs.admit({
             ownerId: alice,
             plan: plus,
+            pipelineReleaseId: 'v1',
             idempotencyKey: key,
             requestHash: key,
             request: request(key),
@@ -383,6 +394,342 @@ export function describeStoreContract(name: string, make: MakeHarness) {
         expect(await pending()).toEqual([]);
         await h.store.outbox.markDispatched(event!, NOW);
         expect(await pending()).toEqual([]);
+      });
+    });
+
+    describe('execution', () => {
+      const LEASE_MS = 60_000;
+      const later = (ms: number) => new Date(NOW.getTime() + ms);
+
+      beforeEach(async () => {
+        h = await make({});
+      });
+
+      const claimed = async (owner: string, jobId: string, at = NOW) => {
+        const result = await h.store.execution.claim(owner, jobId, at, LEASE_MS);
+        if (result.kind !== 'claimed') throw new Error(`not claimed: ${result.reason}`);
+        return result;
+      };
+
+      it('lets one worker claim a job and recovers it once the lease expires', async () => {
+        const { job } = await admit(alice, 'key-00000001');
+        const first = await claimed(alice, job.jobId);
+        expect(first.lease.fence).toBe(1);
+        expect(first.job).toMatchObject({ status: 'running' });
+        expect(await h.store.execution.claim(alice, job.jobId, later(1_000), LEASE_MS)).toEqual({
+          kind: 'skipped',
+          reason: 'leased',
+        });
+        const second = await claimed(alice, job.jobId, later(LEASE_MS + 1));
+        expect(second.lease.fence).toBe(2);
+      });
+
+      it('grants one claim among concurrent workers', async () => {
+        const { job } = await admit(alice, 'key-00000001');
+        const results = await Promise.all(
+          Array.from({ length: 5 }, () => h.store.execution.claim(alice, job.jobId, NOW, LEASE_MS)),
+        );
+        expect(results.filter((r) => r.kind === 'claimed')).toHaveLength(1);
+      });
+
+      it('refuses a stale worker once a newer lease exists, and publishes once', async () => {
+        const { job } = await admit(alice, 'key-00000001');
+        const old = await claimed(alice, job.jobId);
+        const fresh = await claimed(alice, job.jobId, later(LEASE_MS + 1));
+        const now = later(LEASE_MS + 2);
+        const settle = { spendCommittedMicroUsd: 0 };
+        expect(await h.store.execution.checkpoint(old.lease, 'inference', { id: 'a' }, now)).toBe(
+          'stale',
+        );
+        expect(await h.store.execution.succeed(old.lease, { by: 'old' }, settle, now)).toBe(
+          'stale',
+        );
+        expect(await h.store.execution.fail(old.lease, expiredError(job.jobId), settle, now)).toBe(
+          'stale',
+        );
+        expect(await h.store.execution.succeed(fresh.lease, { by: 'new' }, settle, now)).toBe(
+          'applied',
+        );
+        expect(await h.store.jobs.get(alice, job.jobId)).toMatchObject({
+          status: 'succeeded',
+          result: { by: 'new' },
+        });
+        // The old worker cannot overwrite the published result afterwards either.
+        expect(await h.store.execution.succeed(old.lease, { by: 'old' }, settle, now)).toBe(
+          'stale',
+        );
+        expect((await h.store.jobs.get(alice, job.jobId))?.result).toEqual({ by: 'new' });
+      });
+
+      it('lets a worker whose lease expired finish if nobody took over', async () => {
+        const { job } = await admit(alice, 'key-00000001');
+        const lease = (await claimed(alice, job.jobId)).lease;
+        expect(
+          await h.store.execution.succeed(
+            lease,
+            { ok: 1 },
+            { spendCommittedMicroUsd: 0 },
+            later(LEASE_MS * 2),
+          ),
+        ).toBe('applied');
+      });
+
+      it('applies a repeated completion by the same lease once, freeing the slot once', async () => {
+        const a = await admit(alice, 'key-00000001');
+        await admit(alice, 'key-00000002');
+        const { lease } = await claimed(alice, a.job.jobId);
+        const settle = { spendCommittedMicroUsd: 0 };
+        expect(await h.store.execution.succeed(lease, { n: 1 }, settle, NOW)).toBe('applied');
+        expect(await h.store.execution.succeed(lease, { n: 1 }, settle, NOW)).toBe('applied');
+        // Two slots in total: one is free again, and only one.
+        await expect(admit(alice, 'key-00000003')).resolves.toMatchObject({ replayed: false });
+        await expect(admit(alice, 'key-00000004')).rejects.toMatchObject({ kind: 'active_jobs' });
+      });
+
+      it('keeps what was spent and gives back the rest of the reservation', async () => {
+        await h.setLimitOverride(alice, { ...WIDE, dailySpendMicroUsd: 100_000 });
+        const a = await admit(alice, 'key-00000001');
+        const b = await admit(alice, 'key-00000002');
+        await expect(admit(alice, 'key-00000003')).rejects.toMatchObject({ kind: 'daily_spend' });
+        const { lease } = await claimed(alice, a.job.jobId);
+        await h.store.execution.succeed(lease, {}, { spendCommittedMicroUsd: 10_000 }, NOW);
+        expect(await h.store.jobs.get(alice, a.job.jobId)).toMatchObject({
+          spendReservedMicroUsd: 0,
+          spendCommittedMicroUsd: 10_000,
+        });
+        // 10k spent + 50k still reserved for b leaves 40k: not enough for another 50k hold.
+        await expect(admit(alice, 'key-00000003')).rejects.toMatchObject({ kind: 'daily_spend' });
+        const second = await claimed(alice, b.job.jobId);
+        await h.store.execution.succeed(second.lease, {}, { spendCommittedMicroUsd: 0 }, NOW);
+        await expect(admit(alice, 'key-00000003')).resolves.toMatchObject({ replayed: false });
+      });
+
+      it('never keeps more than the job’s cap', async () => {
+        const { job } = await admit(alice, 'key-00000001');
+        const { lease } = await claimed(alice, job.jobId);
+        await h.store.execution.succeed(lease, {}, { spendCommittedMicroUsd: 999_999 }, NOW);
+        expect((await h.store.jobs.get(alice, job.jobId))?.spendCommittedMicroUsd).toBe(50_000);
+      });
+
+      it('stops a worker whose job was cancelled or deleted', async () => {
+        const a = await admit(alice, 'key-00000001');
+        const b = await admit(alice, 'key-00000002');
+        const first = await claimed(alice, a.job.jobId);
+        const second = await claimed(alice, b.job.jobId);
+        const settle = { spendCommittedMicroUsd: 0 };
+        await h.store.jobs.cancel(alice, a.job.jobId, NOW);
+        await h.store.jobs.delete(alice, b.job.jobId);
+        expect(await h.store.execution.succeed(first.lease, {}, settle, NOW)).toBe('stale');
+        expect(await h.store.execution.succeed(second.lease, {}, settle, NOW)).toBe('stale');
+        expect(await h.store.jobs.get(alice, a.job.jobId)).toMatchObject({ status: 'cancelled' });
+        expect(await h.store.jobs.get(alice, b.job.jobId)).toBeNull();
+        // Cancelling and deleting released both slots exactly once.
+        await admit(alice, 'key-00000003');
+        await admit(alice, 'key-00000004');
+        await expect(admit(alice, 'key-00000005')).rejects.toMatchObject({ kind: 'active_jobs' });
+      });
+
+      it('remembers provider ids and the stage across a crash', async () => {
+        const { job } = await admit(alice, 'key-00000001');
+        const first = await claimed(alice, job.jobId);
+        expect(
+          await h.store.execution.checkpoint(first.lease, 'ocr', { textractJobId: 't-1' }, NOW),
+        ).toBe('applied');
+        const again = await claimed(alice, job.jobId, later(LEASE_MS + 1));
+        expect(again.job).toMatchObject({ stage: 'ocr' });
+        expect(again.job.exec.checkpoints.ocr).toEqual({ textractJobId: 't-1' });
+      });
+
+      it('parks a retry until it is due, counting the attempt', async () => {
+        const { job } = await admit(alice, 'key-00000001');
+        const { lease } = await claimed(alice, job.jobId);
+        const due = later(5_000);
+        expect(await h.store.execution.retryLater(lease, 'inference', due, NOW)).toBe('applied');
+        const waiting = await h.store.jobs.get(alice, job.jobId);
+        expect(waiting).toMatchObject({ status: 'retry_wait', stage: 'inference' });
+        expect(waiting?.exec.stepAttempts).toEqual({ inference: 1 });
+        expect(waiting?.exec.availableAt).toEqual(due);
+
+        // The retry event is not dispatchable before it is due.
+        const types = async (at: Date) =>
+          (await h.store.outbox.pending(1000, at))
+            .filter((e) => e.ownerId === alice)
+            .map((e) => e.type);
+        expect(await types(NOW)).not.toContain('job.retry');
+        expect(await types(due)).toContain('job.retry');
+
+        expect(await h.store.execution.claim(alice, job.jobId, later(1_000), LEASE_MS)).toEqual({
+          kind: 'skipped',
+          reason: 'not_due',
+        });
+        const next = await claimed(alice, job.jobId, due);
+        // Every claim and every handoff (retry, wait) raises the fence.
+        expect(next.lease.fence).toBe(3);
+        expect(await h.store.execution.retryLater(lease, 'inference', due, due)).toBe('stale');
+      });
+
+      it('parks a job on an external operation without a lease, and wakes it on completion', async () => {
+        const { job } = await admit(alice, 'key-00000001');
+        const { lease } = await claimed(alice, job.jobId);
+        expect(await h.store.execution.waitExternal(lease, 'ocr-1', NOW)).toBe('applied');
+        expect(await h.store.jobs.get(alice, job.jobId)).toMatchObject({
+          status: 'waiting_external',
+        });
+        expect(await h.store.execution.claim(alice, job.jobId, later(1_000), LEASE_MS)).toEqual({
+          kind: 'skipped',
+          reason: 'waiting',
+        });
+        expect(await h.store.execution.succeed(lease, {}, { spendCommittedMicroUsd: 0 }, NOW)).toBe(
+          'stale',
+        );
+        expect(await h.store.execution.resume(alice, job.jobId, 'wrong', NOW)).toBe(false);
+        expect(await h.store.execution.resume(bob, job.jobId, 'ocr-1', NOW)).toBe(false);
+        expect(await h.store.execution.resume(alice, job.jobId, 'ocr-1', NOW)).toBe(true);
+        expect(await h.store.execution.resume(alice, job.jobId, 'ocr-1', NOW)).toBe(false);
+        expect((await pending()).map((e) => e.type)).toContain('job.resume');
+        expect((await claimed(alice, job.jobId, later(1_000))).lease.fence).toBe(3);
+      });
+
+      it('expires a job claimed after its deadline and frees its slot', async () => {
+        const a = await admit(alice, 'key-00000001');
+        await admit(alice, 'key-00000002');
+        const result = await h.store.execution.claim(
+          alice,
+          a.job.jobId,
+          later(11 * 60_000),
+          LEASE_MS,
+        );
+        expect(result).toEqual({ kind: 'skipped', reason: 'expired' });
+        expect(await h.store.jobs.get(alice, a.job.jobId)).toMatchObject({
+          status: 'expired',
+          error: { code: 'deadline_exceeded' },
+          spendReservedMicroUsd: 0,
+        });
+        await expect(admit(alice, 'key-00000003')).resolves.toMatchObject({ replayed: false });
+      });
+
+      it('publishes nothing from a worker that finishes after the deadline', async () => {
+        const a = await admit(alice, 'key-00000001');
+        const { lease } = await claimed(alice, a.job.jobId);
+        const result = await h.store.execution.succeed(
+          lease,
+          { n: 1 },
+          { spendCommittedMicroUsd: 0 },
+          later(11 * 60_000),
+        );
+        expect(result).toBe('stale');
+        expect(await h.store.jobs.get(alice, a.job.jobId)).toMatchObject({
+          status: 'expired',
+          error: { code: 'deadline_exceeded' },
+          spendReservedMicroUsd: 0,
+        });
+      });
+
+      it('counts a lapsed lease as an attempt and stops a job that keeps killing its worker', async () => {
+        const a = await admit(alice, 'key-00000001');
+        let t = 0;
+        let outcome = await h.store.execution.claim(alice, a.job.jobId, later(t), LEASE_MS);
+        for (let crash = 1; crash <= 3; crash += 1) {
+          expect(outcome.kind).toBe('claimed');
+          t += LEASE_MS + 1_000; // the worker died; the lease lapses
+          outcome = await h.store.execution.claim(alice, a.job.jobId, later(t), LEASE_MS);
+        }
+        expect(outcome).toEqual({ kind: 'skipped', reason: 'terminal' });
+        expect(await h.store.jobs.get(alice, a.job.jobId)).toMatchObject({
+          status: 'failed',
+          error: { code: 'internal_error', retryable: true },
+          spendReservedMicroUsd: 0,
+        });
+      });
+
+      it('ends a stuck job visibly and keeps it retryable by its owner', async () => {
+        const { job } = await admit(alice, 'key-00000001');
+        const { lease } = await claimed(alice, job.jobId);
+        const error = expiredError(job.jobId, 'internal_error');
+        const dead = later(LEASE_MS + 1_000);
+        // A worker under a live lease owns the job; a lapsed lease does not.
+        expect(await h.store.execution.abandon(alice, job.jobId, error, NOW)).toBe('stale');
+        expect(await h.store.execution.abandon(bob, job.jobId, error, dead)).toBe('stale');
+        expect(await h.store.execution.abandon(alice, job.jobId, error, dead)).toBe('applied');
+        expect(await h.store.execution.abandon(alice, job.jobId, error, dead)).toBe('stale');
+        expect(await h.store.execution.succeed(lease, {}, { spendCommittedMicroUsd: 0 }, NOW)).toBe(
+          'stale',
+        );
+        expect(await h.store.jobs.get(alice, job.jobId)).toMatchObject({
+          status: 'failed',
+          error: { code: 'internal_error' },
+        });
+        expect(await h.store.jobs.retry(alice, job.jobId, NOW)).toMatchObject({ status: 'queued' });
+      });
+
+      it('resets step attempts on an owner retry but keeps the job’s identity', async () => {
+        const { job } = await admit(alice, 'key-00000001');
+        const { lease } = await claimed(alice, job.jobId);
+        await h.store.execution.retryLater(lease, 'inference', later(1_000), NOW);
+        const next = await claimed(alice, job.jobId, later(1_000));
+        await h.store.execution.fail(
+          next.lease,
+          expiredError(job.jobId, 'dependency_unavailable'),
+          { spendCommittedMicroUsd: 0 },
+          later(1_000),
+        );
+        const retried = await h.store.jobs.retry(alice, job.jobId, later(2_000));
+        expect(retried).toMatchObject({ jobId: job.jobId, idempotencyKey: 'key-00000001' });
+        expect(retried?.exec.stepAttempts).toEqual({});
+        expect(retried?.exec.pipelineReleaseId).toBe('v1');
+      });
+
+      it('lists jobs for the reconciler only when they are due, and acts on them', async () => {
+        const live = await admit(alice, 'key-00000001');
+        const done = await admit(alice, 'key-00000002');
+        const { lease } = await claimed(alice, done.job.jobId);
+        await h.store.execution.succeed(lease, {}, { spendCommittedMicroUsd: 0 }, NOW);
+
+        const mine = async (at: Date) =>
+          (await h.store.execution.due(at, 1000))
+            .filter((d) => d.ownerId === alice)
+            .map((d) => d.jobId);
+        expect(await mine(NOW)).toEqual([]);
+        // Admitted work that should have started by now is due.
+        expect(await mine(later(3 * 60_000))).toEqual([live.job.jobId]);
+
+        expect(await h.store.execution.reconcile(alice, live.job.jobId, later(3 * 60_000))).toBe(
+          'requeued',
+        );
+        expect((await pending()).filter((e) => e.type === 'job.requeue')).toHaveLength(1);
+        // Looked at, so not due again until another grace has passed.
+        expect(await mine(later(3 * 60_000 + 1_000))).toEqual([]);
+
+        expect(await h.store.execution.reconcile(alice, live.job.jobId, later(11 * 60_000))).toBe(
+          'expired',
+        );
+        expect(await h.store.jobs.get(alice, live.job.jobId)).toMatchObject({ status: 'expired' });
+        expect(await h.store.execution.reconcile(alice, live.job.jobId, later(12 * 60_000))).toBe(
+          'settled',
+        );
+        expect(await h.store.execution.reconcile(bob, live.job.jobId, later(12 * 60_000))).toBe(
+          'missing',
+        );
+      });
+
+      it('finds a crashed worker’s job when its lease runs out', async () => {
+        const { job } = await admit(alice, 'key-00000001');
+        await claimed(alice, job.jobId);
+        const mine = async (at: Date) =>
+          (await h.store.execution.due(at, 1000))
+            .filter((d) => d.ownerId === alice)
+            .map((d) => d.jobId);
+        expect(await mine(later(LEASE_MS - 1_000))).toEqual([]);
+        expect(await mine(later(LEASE_MS + 1_000))).toEqual([job.jobId]);
+      });
+
+      it('shows nothing of another user’s job to claim', async () => {
+        const { job } = await admit(alice, 'key-00000001');
+        expect(await h.store.execution.claim(bob, job.jobId, NOW, LEASE_MS)).toEqual({
+          kind: 'skipped',
+          reason: 'missing',
+        });
+        expect(await h.store.jobs.get(alice, job.jobId)).toMatchObject({ status: 'queued' });
       });
     });
 
