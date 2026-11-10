@@ -25,10 +25,13 @@ export type DocxExtraction = {
 const decode = new TextDecoder('utf-8', { fatal: false });
 const OLE_ENCRYPTED = Buffer.from('EncryptedPackage', 'utf16le');
 
+const PART = /^word\/(header|footer)\d*\.xml$/i;
+
 const wanted = (name: string) =>
   name === '[Content_Types].xml' ||
   name === 'word/document.xml' ||
-  name === 'word/_rels/document.xml.rels';
+  name === 'word/_rels/document.xml.rels' ||
+  PART.test(name);
 
 const UNSAFE_RELATIONSHIPS =
   /\/(attachedTemplate|oleObject|subDocument|frame|externalLink|package)$/i;
@@ -42,6 +45,26 @@ function decodeEntities(value: string): string {
       body[1]?.toLowerCase() === 'x' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
     return Number.isInteger(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '';
   });
+}
+
+const TOKEN =
+  /<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>|<w:tab\s*\/>|<w:(?:br|cr)\b[^>]*\/>|<w:noBreakHyphen\s*\/>|<\/w:p>|<\/w:tc>|<\/w:tr>/g;
+
+/** Text of a WordprocessingML part, read with a fixed tag grammar. */
+function textOf(xml: string): string {
+  const token = new RegExp(TOKEN.source, 'g');
+  let out = '';
+  for (let match = token.exec(xml); match; match = token.exec(xml)) {
+    const tag = match[0];
+    if (match[1] !== undefined) out += decodeEntities(match[1]);
+    else if (tag.startsWith('<w:tab')) out += '\t';
+    else if (tag.startsWith('<w:noBreakHyphen')) out += '-';
+    else if (tag.startsWith('<w:br') || tag.startsWith('<w:cr')) out += '\n';
+    else if (tag === '</w:p>') out += '\n';
+    else if (tag === '</w:tc>') out += '\t';
+    else out += '\n'; // </w:tr>
+  }
+  return out.replace(/\t+\n/g, '\n');
 }
 
 const count = (value: string, pattern: RegExp) => value.match(pattern)?.length ?? 0;
@@ -87,19 +110,22 @@ export function extractDocx(bytes: Uint8Array): DocxExtraction {
   // A text box appears twice in mc:AlternateContent (the modern shape and its fallback): read one.
   const body = xml.replace(/<mc:Fallback\b[\s\S]*?<\/mc:Fallback>/g, '');
 
-  const token =
-    /<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>|<w:tab\s*\/>|<w:(?:br|cr)\b[^>]*\/>|<w:noBreakHyphen\s*\/>|<\/w:p>|<\/w:tc>|<\/w:tr>/g;
-  let out = '';
-  for (let match = token.exec(body); match; match = token.exec(body)) {
-    const tag = match[0];
-    if (match[1] !== undefined) out += decodeEntities(match[1]);
-    else if (tag.startsWith('<w:tab')) out += '\t';
-    else if (tag.startsWith('<w:noBreakHyphen')) out += '-';
-    else if (tag.startsWith('<w:br') || tag.startsWith('<w:cr')) out += '\n';
-    else if (tag === '</w:p>') out += '\n';
-    else if (tag === '</w:tc>') out += '\t';
-    else out += '\n'; // </w:tr>
-  }
+  // Headers come first and footers last; identical parts (default, first-page, even-page copies) count once.
+  const partText = (kind: 'header' | 'footer') => {
+    const seen = new Set<string>();
+    for (const name of [...files.keys()]
+      .filter((n) => PART.test(n) && n.toLowerCase().includes(kind))
+      .sort()) {
+      const raw = read(name);
+      if (/<!DOCTYPE|<!ENTITY/i.test(raw)) throw new RejectedDocumentError('unsafe');
+      seen.add(textOf(raw.replace(/<mc:Fallback\b[\s\S]*?<\/mc:Fallback>/g, '')).trim());
+    }
+    return [...seen].filter(Boolean);
+  };
+  const headers = partText('header');
+  const footers = partText('footer');
+  const bodyText = textOf(body);
+  const out = [...headers, bodyText, ...footers].join('\n\n');
 
   const warnings: DocxWarning[] = [];
   const images = names.filter((name) => /^word\/media\//i.test(name)).length;
@@ -124,7 +150,7 @@ export function extractDocx(bytes: Uint8Array): DocxExtraction {
   }
 
   return {
-    text: normalizeText(out.replace(/\t+\n/g, '\n')),
+    text: normalizeText(out),
     extractorVersion: DOCX_EXTRACTOR_VERSION,
     paragraphs: count(body, /<\/w:p>/g),
     tables: count(body, /<w:tbl>/g),

@@ -47,6 +47,19 @@ const prose = (length: number) => {
 };
 
 describe('extractDocx', () => {
+  it('reads headers and footers, once each, around the body', () => {
+    const part = (tag: string, text: string) =>
+      `<?xml version="1.0"?><w:${tag} xmlns:w="w">${p(text)}</w:${tag}>`;
+    const out = extractDocx(
+      docx(p('Body'), {
+        'word/header1.xml': part('hdr', 'Nino Beridze nino@example.com'),
+        'word/header2.xml': part('hdr', 'Nino Beridze nino@example.com'),
+        'word/footer1.xml': part('ftr', 'Page footer'),
+      }),
+    );
+    expect(out.text).toBe('Nino Beridze nino@example.com\n\nBody\n\nPage footer');
+  });
+
   it('reads paragraphs, tabs, breaks and entities in order', () => {
     const result = extractDocx(
       docx(

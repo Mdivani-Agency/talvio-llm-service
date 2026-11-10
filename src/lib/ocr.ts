@@ -95,9 +95,9 @@ export function parseOcrNotification(body: string): OcrNotification | null {
 const MAX_RESULT_PAGES = 50;
 
 /**
- * Reads every result page and merges lines by page number, in page order. Duplicate lines inside a
- * page (repeated across result pages) are dropped; a page is never replaced by an emptier copy.
- * Pages Textract did not return are reported as warnings, never filled in or guessed.
+ * Reads every result page and merges lines by page number, in page order. Textract returns each
+ * block once, so lines are appended as received and identical text on one page (a repeated job
+ * title, say) is kept. Pages Textract did not return are reported as warnings, never filled in or guessed.
  */
 export async function collectOcr(
   client: OcrClient,
@@ -116,11 +116,7 @@ export async function collectOcr(
     }
     for (const w of page.warnings) warnings.add(w);
     for (const part of page.pages) {
-      const lines = byPage.get(part.page) ?? [];
-      for (const line of part.lines) {
-        if (!lines.includes(line)) lines.push(line);
-      }
-      if (lines.length >= (byPage.get(part.page)?.length ?? 0)) byPage.set(part.page, lines);
+      byPage.set(part.page, [...(byPage.get(part.page) ?? []), ...part.lines]);
     }
     token = page.nextToken;
     if (!token) {

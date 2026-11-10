@@ -124,8 +124,8 @@ describe('asynchronous OCR', () => {
       {
         status: 'SUCCEEDED',
         pages: [
-          { page: 1, lines: ['Nino Beridze', 'Engineer'] },
-          { page: 2, lines: ['Page two line', 'Second line'] },
+          { page: 1, lines: ['Nino Beridze', 'Engineer', 'Engineer'] },
+          { page: 2, lines: ['Second line'] },
         ],
         warnings: [],
         nextToken: null,
@@ -140,7 +140,7 @@ describe('asynchronous OCR', () => {
         (await blobs.read('artifacts', ready?.artifact?.key ?? '', null, 1e6)) ?? [],
       ).toString(),
     ).text as string;
-    expect(text).toBe('Nino Beridze\nEngineer\n\nPage two line\nSecond line');
+    expect(text).toBe('Nino Beridze\nEngineer\nEngineer\n\nPage two line\nSecond line');
     // A duplicate completion changes nothing.
     expect(await completeOcr({ store, blobs, logger }, client, n, NOW)).toBe('skipped');
   });
