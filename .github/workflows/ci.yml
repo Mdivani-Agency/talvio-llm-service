@@ -47,8 +47,8 @@ jobs:
       - name: Test contracts
         run: yarn test:contracts
 
-  # Manual until MDI-213 provisions the service's infrastructure. Every route except health
-  # answers 503 until the Supabase store lands (MDI-214).
+  # Manual. Needs the dev platform from talvio-terraform-iac (MDI-213) and the llm deploy role in
+  # AWS_DEPLOY_ROLE_ARN. Every route except health answers 503 until the DynamoDB store lands (MDI-214).
   deploy-dev:
     name: deploy (dev)
     needs: check
@@ -70,7 +70,7 @@ jobs:
         run: yarn install --immutable
       - name: Skip deploy (no AWS_DEPLOY_ROLE_ARN)
         if: env.ROLE_ARN == ''
-        run: echo "Set the dev environment variable AWS_DEPLOY_ROLE_ARN (SSM /dev/ci/deploy-role-arn)." >> "$GITHUB_STEP_SUMMARY"
+        run: echo "Set the dev environment variable AWS_DEPLOY_ROLE_ARN to the llm_deploy_role_arn bootstrap output (SSM /dev/ci/llm-deploy-role-arn)." >> "$GITHUB_STEP_SUMMARY"
       - name: Configure AWS (OIDC)
         if: env.ROLE_ARN != ''
         uses: aws-actions/configure-aws-credentials@v4

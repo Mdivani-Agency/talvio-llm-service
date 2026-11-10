@@ -16,7 +16,9 @@ describe('gateway responses', () => {
 describe('serverless.ts', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const config = require('../../serverless') as {
-    functions: { api: { events: { http: { path: string; authorizer?: unknown } }[] } };
+    functions: {
+      api: { events: { http: { path: string; authorizer?: unknown } }[] };
+    };
     resources: { Resources: Record<string, { Properties: { ResponseType: string } }> };
   };
 
@@ -36,5 +38,42 @@ describe('serverless.ts', () => {
     expect(
       Object.values(config.resources.Resources).map((resource) => resource.Properties.ResponseType),
     ).toEqual(Object.keys(GATEWAY_ERRORS));
+  });
+
+  describe('Terraform-owned function roles', () => {
+    type Roles = {
+      provider: { iam?: unknown };
+      functions: { api: { role?: string }; authorizer: { role?: string } };
+    };
+    const originalArgv = process.argv;
+    const loadFor = (stageArgs: string[]): Roles => {
+      process.argv = [...originalArgv, ...stageArgs];
+      let loaded: Roles | undefined;
+      jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        loaded = require('../../serverless') as Roles;
+      });
+      return loaded as Roles;
+    };
+    afterEach(() => {
+      process.argv = originalArgv;
+    });
+
+    it.each([
+      ['dev', ['--stage', 'dev']],
+      ['prod', ['--stage=prod']],
+      ['dev', []],
+    ])('reads only the %s stage roles from SSM and creates no IAM', (stage, args) => {
+      const loaded = loadFor(args);
+      expect(loaded.provider.iam).toBeUndefined();
+      expect(loaded.functions.api.role).toBe(`\${ssm:/${stage}/llm/api-role-arn}`);
+      expect(loaded.functions.authorizer.role).toBe(`\${ssm:/${stage}/llm/authorizer-role-arn}`);
+    });
+
+    it('references no SSM role for local runs', () => {
+      const loaded = loadFor(['--stage', 'local']);
+      expect(loaded.functions.api.role).toBeUndefined();
+      expect(loaded.functions.authorizer.role).toBeUndefined();
+    });
   });
 });

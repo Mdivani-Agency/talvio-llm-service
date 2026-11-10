@@ -23,8 +23,33 @@ type ServerlessV4 = AWS & {
  * Every route except health goes through the `authorizer` Lambda (src/api/authorizer.ts),
  * which verifies the Supabase access token and its account_status and plan claims. Its
  * results are not cached, and its refusals use the contract's error shape (GATEWAY_ERRORS).
- * Neither function has AWS permissions yet: MDI-213 adds the scoped worker and storage roles.
+ * Each function runs under a role Terraform owns (talvio-terraform-iac modules/llm), read from SSM
+ * /<stage>/llm/<role>-role-arn. The API role cannot call models; the worker role arrives with the worker
+ * functions (MDI-215). Tables, buckets, queues and KMS are Terraform-owned too, so this stack creates no
+ * IAM roles or stateful resources. Local runs use no role (serverless-offline ignores it).
  */
+/**
+ * The stage this run targets, read the way `${opt:stage, "dev"}` does. Serverless resolves every
+ * `${ssm:}` reference in the config before a command runs, even in unused `custom` branches, so the
+ * role lookups are built only for the selected stage and never for local, test or the other stage.
+ */
+const selectedStage = (): string => {
+  const args = process.argv;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === undefined) continue;
+    if (arg === '--stage' || arg === '-s') return args[i + 1] ?? 'dev';
+    if (arg.startsWith('--stage=')) return arg.slice('--stage='.length);
+  }
+  return 'dev';
+};
+
+/** SSM reference for a Terraform-owned Lambda role; no role (undefined) outside dev and prod. */
+const roleArn = (role: 'api' | 'authorizer'): string | undefined => {
+  const stage = selectedStage();
+  return stage === 'dev' || stage === 'prod' ? `\${ssm:/${stage}/llm/${role}-role-arn}` : undefined;
+};
+
 const AUTHORIZER = {
   name: 'authorizer',
   type: 'token',
@@ -91,16 +116,12 @@ const serverlessConfiguration: ServerlessV4 = {
     apiGateway: {
       minimumCompressionSize: 1024,
     },
-    iam: {
-      role: {
-        statements: [],
-      },
-    },
   },
 
   functions: {
     api: {
       handler: 'src/handler.main',
+      role: roleArn('api'),
       events: ROUTE_TABLE.map((route) => ({
         http: {
           method: route.method.toLowerCase(),
@@ -111,6 +132,7 @@ const serverlessConfiguration: ServerlessV4 = {
     },
     authorizer: {
       handler: 'src/authorizer.main',
+      role: roleArn('authorizer'),
       memorySize: 256,
       timeout: 5,
     },
@@ -134,8 +156,14 @@ const serverlessConfiguration: ServerlessV4 = {
 
   custom: {
     local: { domainName: 'dev.talvio.co', storeDriver: 'memory', customDomainEnabled: false },
-    dev: { domainName: 'dev.talvio.co', storeDriver: 'unconfigured' },
-    prod: { domainName: 'talvio.co', storeDriver: 'unconfigured' },
+    dev: {
+      domainName: 'dev.talvio.co',
+      storeDriver: 'unconfigured',
+    },
+    prod: {
+      domainName: 'talvio.co',
+      storeDriver: 'unconfigured',
+    },
     customDomain: {
       rest: {
         // The shared api.<domain> custom domain and its DNS record belong to the platform
