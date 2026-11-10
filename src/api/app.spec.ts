@@ -4,6 +4,7 @@ import { ApiError } from '../lib/errors';
 import { createLogger, userRef } from '../lib/log';
 import { createMemoryStore } from '../lib/store/memory';
 import { createUnconfiguredStore } from '../lib/store/unconfigured';
+import { createMemoryBlobs } from '../lib/blob';
 import { USER_A, event, json, testApp, type TestApp, type TokenOptions } from '../test/helpers';
 import { createApp } from './app';
 import { ROUTE_TABLE } from './route-table';
@@ -94,6 +95,7 @@ describe('authentication on every route', () => {
 describe('without the API Gateway authorizer', () => {
   const direct = createApp({
     store: createMemoryStore(),
+    blobs: createMemoryBlobs(),
     logger: createLogger('error', () => undefined),
     maxBodyBytes: 1_000_000,
     pipelineReleaseId: 'v1',

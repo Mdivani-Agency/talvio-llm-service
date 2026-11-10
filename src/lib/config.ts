@@ -48,6 +48,26 @@ const configSchema = z
           return z.NEVER;
         }
       }),
+    /** Terraform-owned private buckets, read from SSM /<stage>/s3/llm-{quarantine,artifacts}. */
+    LLM_QUARANTINE_BUCKET: z.string().min(1).optional(),
+    LLM_ARTIFACTS_BUCKET: z.string().min(1).optional(),
+    /**
+     * Upload content types read by OCR instead of deterministic extraction. Empty by default: the
+     * ticket sends PDFs to the browser and DOCX to the deterministic path, so nothing is sent to
+     * Textract until a type is listed here.
+     */
+    OCR_CONTENT_TYPES: z
+      .string()
+      .optional()
+      .transform((value) =>
+        (value ?? '')
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean),
+      ),
+    /** SNS topic and role Textract publishes completion with, from SSM /<stage>/llm/ocr-topic-arn and textract-role-arn. */
+    OCR_TOPIC_ARN: z.string().min(1).optional(),
+    OCR_ROLE_ARN: z.string().min(1).optional(),
     /** DynamoDB Local for CI and local runs. Refused on deployed stages. */
     DYNAMODB_ENDPOINT: z.url({ protocol: /^https?$/ }).optional(),
     /** Account-wide spend ceiling per UTC day, in micro-USD. */
@@ -91,6 +111,25 @@ const configSchema = z
       message:
         'WORK_QUEUE_URLS needs an entry for PIPELINE_RELEASE (required for the dynamodb store outside local and test)',
       path: ['WORK_QUEUE_URLS'],
+    },
+  )
+  .refine(
+    (config) =>
+      config.STORE_DRIVER !== 'dynamodb' ||
+      config.STAGE === 'local' ||
+      config.STAGE === 'test' ||
+      Boolean(config.LLM_QUARANTINE_BUCKET && config.LLM_ARTIFACTS_BUCKET),
+    {
+      message: 'deployed stages need LLM_QUARANTINE_BUCKET and LLM_ARTIFACTS_BUCKET',
+      path: ['LLM_QUARANTINE_BUCKET'],
+    },
+  )
+  .refine(
+    (config) =>
+      config.OCR_CONTENT_TYPES.length === 0 || Boolean(config.OCR_TOPIC_ARN && config.OCR_ROLE_ARN),
+    {
+      message: 'OCR_CONTENT_TYPES needs OCR_TOPIC_ARN and OCR_ROLE_ARN',
+      path: ['OCR_CONTENT_TYPES'],
     },
   )
   .refine((config) => !config.DYNAMODB_ENDPOINT || ['local', 'test'].includes(config.STAGE), {

@@ -1,7 +1,10 @@
 import { loadConfig, type Config } from '../lib/config';
+import { createBlobs, type BlobStore } from '../lib/blob';
+import { createTextractClient } from '../lib/ocr';
 import { createLogger, type Logger } from '../lib/log';
 import { createNoQueues, createSqsQueues, type WorkQueues } from '../lib/queue';
 import { createStore, type Store } from '../lib/store';
+import type { OcrConfig } from './ocr';
 import type { Executors } from './run';
 
 /*
@@ -14,9 +17,14 @@ import type { Executors } from './run';
 export type Runtime = {
   config: Config;
   store: Store;
+  blobs: BlobStore;
+  /** Release new work is pinned to; document work always goes to its queue. */
+  currentRelease: string;
   queues: WorkQueues;
   logger: Logger;
   executors: Executors;
+  /** Set only when some content type is read by OCR; otherwise nothing reaches Textract. */
+  ocr?: OcrConfig;
 };
 
 /**
@@ -39,8 +47,23 @@ export function createRuntime(): Runtime {
   return {
     config,
     store: createStore(config),
+    blobs: createBlobs(config),
+    currentRelease: config.PIPELINE_RELEASE,
     queues: config.WORK_QUEUE_URLS ? createSqsQueues(config.WORK_QUEUE_URLS) : createNoQueues(),
     logger: createLogger(config.LOG_LEVEL),
     executors: EXECUTORS,
+    ocr:
+      config.OCR_CONTENT_TYPES.length > 0 &&
+      config.OCR_TOPIC_ARN &&
+      config.OCR_ROLE_ARN &&
+      config.LLM_QUARANTINE_BUCKET
+        ? {
+            client: createTextractClient(),
+            topicArn: config.OCR_TOPIC_ARN,
+            roleArn: config.OCR_ROLE_ARN,
+            bucket: config.LLM_QUARANTINE_BUCKET,
+            types: config.OCR_CONTENT_TYPES,
+          }
+        : undefined,
   };
 }

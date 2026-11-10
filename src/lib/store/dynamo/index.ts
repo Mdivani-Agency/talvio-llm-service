@@ -1,4 +1,3 @@
-import { createUnconfiguredStore } from '../unconfigured';
 import type { Store } from '../types';
 import { createDb, type Tables } from './db';
 import { createDynamoDocumentStore } from './documents';
@@ -24,7 +23,6 @@ export function createDynamoStore(options: DynamoStoreOptions): DynamoStore {
     execution: createDynamoExecutionStore(db),
     documents: createDynamoDocumentStore(db),
     sessions: createDynamoSessionStore(db),
-    uploads: createUnconfiguredStore().uploads,
   };
 }
 

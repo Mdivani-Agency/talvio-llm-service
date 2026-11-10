@@ -888,25 +888,138 @@ export function describeStoreContract(name: string, make: MakeHarness) {
         h = await make({});
       });
 
+      const key = (owner: string) => `pending/${owner}/${randomUUID()}`;
+      const pin = { versionId: 'v-1' };
+      const artifact = {
+        key: 'results/o/documents/d/text.json',
+        versionId: 'a-1',
+        sha256: 'f'.repeat(64),
+        chars: 10,
+        extractorVersion: 'docx-1',
+        method: 'docx' as const,
+      };
+
       it('creates, completes once and deletes, for the owner only', async () => {
-        const doc = await h.store.documents.create(alice, body, NOW);
-        expect(doc).toMatchObject({ status: 'awaiting_upload', ownerId: alice, ocrPages: [] });
+        const doc = await h.store.documents.create(alice, body, key(alice), NOW);
+        expect(doc).toMatchObject({
+          status: 'awaiting_upload',
+          ownerId: alice,
+          ocrPages: [],
+          objectVersionId: null,
+        });
         expect(doc.expiresAt).toEqual(new Date(NOW.getTime() + 24 * 60 * 60 * 1000));
         expect(await h.store.documents.get(bob, doc.documentId)).toBeNull();
-        expect(await h.store.documents.complete(bob, doc.documentId, NOW)).toBeNull();
+        expect(await h.store.documents.complete(bob, doc.documentId, pin, NOW)).toBeNull();
         expect(await h.store.documents.get(alice, doc.documentId)).toMatchObject({
           status: 'awaiting_upload',
         });
 
-        const completed = await h.store.documents.complete(alice, doc.documentId, NOW);
-        expect(completed).toMatchObject({ status: 'validating' });
-        expect(completed?.expiresAt).toEqual(new Date(NOW.getTime() + 7 * 24 * 60 * 60 * 1000));
-        expect(await h.store.documents.complete(alice, doc.documentId, NOW)).toMatchObject({
+        const completed = await h.store.documents.complete(alice, doc.documentId, pin, NOW);
+        expect(completed?.document).toMatchObject({
           status: 'validating',
+          objectVersionId: 'v-1',
         });
+        expect(completed?.document.expiresAt).toEqual(
+          new Date(NOW.getTime() + 7 * 24 * 60 * 60 * 1000),
+        );
+        expect(completed?.event).toMatchObject({
+          type: 'document.validate',
+          ownerId: alice,
+          jobId: doc.documentId,
+          operation: null,
+        });
+        // A second completion neither changes the pinned version nor queues more work.
+        const again = await h.store.documents.complete(
+          alice,
+          doc.documentId,
+          { versionId: 'v-2' },
+          NOW,
+        );
+        expect(again?.document).toMatchObject({ status: 'validating', objectVersionId: 'v-1' });
+        expect(again?.event).toBeNull();
+        const queued = (await h.store.outbox.pending(1_000, NOW)).filter(
+          (event) => event.jobId === doc.documentId,
+        );
+        expect(queued).toHaveLength(1);
 
-        expect(await h.store.documents.delete(bob, doc.documentId)).toBe(false);
-        expect(await h.store.documents.delete(alice, doc.documentId)).toBe(true);
+        expect(await h.store.documents.delete(bob, doc.documentId)).toBeNull();
+        expect(await h.store.documents.delete(alice, doc.documentId)).toMatchObject({
+          documentId: doc.documentId,
+          objectKey: doc.objectKey,
+        });
+        expect(await h.store.documents.get(alice, doc.documentId)).toBeNull();
+        expect(await h.store.documents.delete(alice, doc.documentId)).toBeNull();
+      });
+
+      it('finishes a validating document once, as ready or rejected', async () => {
+        const ready = await h.store.documents.create(alice, body, key(alice), NOW);
+        const outcome = {
+          kind: 'ready' as const,
+          pageCount: null,
+          ocrPages: [],
+          warnings: [{ code: 'docx_images_not_read', message: 'm' }],
+          artifact,
+        };
+        // Not validating yet, or someone else's: nothing changes.
+        expect(await h.store.documents.finish(alice, ready.documentId, outcome, NOW)).toBeNull();
+        await h.store.documents.complete(alice, ready.documentId, pin, NOW);
+        expect(await h.store.documents.finish(bob, ready.documentId, outcome, NOW)).toBeNull();
+        expect(await h.store.documents.finish(alice, ready.documentId, outcome, NOW)).toMatchObject(
+          {
+            status: 'ready',
+            artifact,
+            warnings: outcome.warnings,
+          },
+        );
+        expect(await h.store.documents.finish(alice, ready.documentId, outcome, NOW)).toBeNull();
+
+        const bad = await h.store.documents.create(alice, body, key(alice), NOW);
+        await h.store.documents.complete(alice, bad.documentId, pin, NOW);
+        expect(
+          await h.store.documents.finish(
+            alice,
+            bad.documentId,
+            { kind: 'rejected', code: 'unusable_document', warnings: [] },
+            NOW,
+          ),
+        ).toMatchObject({ status: 'rejected', rejectionCode: 'unusable_document' });
+      });
+
+      it('records OCR intent once and the provider job only for that intent', async () => {
+        const doc = await h.store.documents.create(alice, body, key(alice), NOW);
+        const ocr = { clientToken: 'tok-1', pages: 2 };
+        // Not validating yet: nothing to record.
+        expect(await h.store.documents.beginOcr(alice, doc.documentId, ocr)).toBe(false);
+        await h.store.documents.complete(alice, doc.documentId, pin, NOW);
+        expect(await h.store.documents.beginOcr(bob, doc.documentId, ocr)).toBe(false);
+        expect(await h.store.documents.beginOcr(alice, doc.documentId, ocr)).toBe(true);
+        expect(await h.store.documents.beginOcr(alice, doc.documentId, ocr)).toBe(false);
+        expect(
+          await h.store.documents.recordOcrJob(alice, doc.documentId, 'other-token', 'job-1'),
+        ).toBe(false);
+        expect(await h.store.documents.recordOcrJob(alice, doc.documentId, 'tok-1', 'job-1')).toBe(
+          true,
+        );
+        expect(await h.store.documents.get(alice, doc.documentId)).toMatchObject({
+          ocr: { state: 'started', textractJobId: 'job-1', clientToken: 'tok-1', pages: 2 },
+        });
+        expect(await h.store.documents.recordOcrJob(alice, doc.documentId, 'tok-1', 'job-2')).toBe(
+          false,
+        );
+      });
+
+      it('does not finish a document that was deleted meanwhile', async () => {
+        const doc = await h.store.documents.create(alice, body, key(alice), NOW);
+        await h.store.documents.complete(alice, doc.documentId, pin, NOW);
+        await h.store.documents.delete(alice, doc.documentId);
+        expect(
+          await h.store.documents.finish(
+            alice,
+            doc.documentId,
+            { kind: 'rejected', code: 'unusable_document', warnings: [] },
+            NOW,
+          ),
+        ).toBeNull();
         expect(await h.store.documents.get(alice, doc.documentId)).toBeNull();
       });
     });

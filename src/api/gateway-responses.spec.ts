@@ -98,7 +98,7 @@ describe('serverless.ts', () => {
     );
 
     type Fn = { role?: string; timeout: number; events: Record<string, unknown>[] };
-    type Fns = { functions: Record<'worker' | 'dlq' | 'dispatcher' | 'reconciler', Fn> };
+    type Fns = { functions: Record<'worker' | 'dlq' | 'ocr' | 'dispatcher' | 'reconciler', Fn> };
 
     it.each(['dev', 'prod'])('wires the %s background functions from SSM', (stage) => {
       const { functions } = loadFor(['--stage', stage]) as unknown as Fns;
@@ -120,6 +120,10 @@ describe('serverless.ts', () => {
       expect(functions.dlq.events).toEqual([
         expect.objectContaining({ sqs: expect.objectContaining({ arn: ssm('work-dlq-arn-v1') }) }),
       ]);
+      expect(functions.ocr.role).toBe(ssm('worker-role-arn'));
+      expect(functions.ocr.events).toEqual([
+        expect.objectContaining({ sqs: expect.objectContaining({ arn: ssm('ocr-queue-arn') }) }),
+      ]);
       expect(functions.dispatcher.events).toEqual([{ schedule: ssm('dispatcher-schedule') }]);
       expect(functions.reconciler.events).toEqual([{ schedule: ssm('reconciler-schedule') }]);
       // The queue visibility timeout (6 x worker timeout) must outlive an invocation.
@@ -134,10 +138,22 @@ describe('serverless.ts', () => {
       });
     });
 
+    it.each(['dev', 'prod'])('reads the %s buckets and OCR settings from SSM', (stage) => {
+      const { provider } = loadFor(['--stage', stage]) as unknown as Env;
+      expect(provider.environment).toMatchObject({
+        LLM_QUARANTINE_BUCKET: `\${ssm:/${stage}/s3/llm-quarantine}`,
+        LLM_ARTIFACTS_BUCKET: `\${ssm:/${stage}/s3/llm-artifacts}`,
+        OCR_TOPIC_ARN: `\${ssm:/${stage}/llm/ocr-topic-arn}`,
+        OCR_ROLE_ARN: `\${ssm:/${stage}/llm/textract-role-arn}`,
+      });
+      // Nothing is read by OCR until a content type is listed.
+      expect(provider.environment.OCR_CONTENT_TYPES).toBeUndefined();
+    });
+
     it('has no triggers, roles or queue URLs for local runs', () => {
       const loaded = loadFor(['--stage', 'local']) as unknown as Fns & Env;
-      const { worker, dlq, dispatcher, reconciler } = loaded.functions;
-      for (const fn of [worker, dlq, dispatcher, reconciler]) {
+      const { worker, dlq, ocr, dispatcher, reconciler } = loaded.functions;
+      for (const fn of [worker, dlq, ocr, dispatcher, reconciler]) {
         expect(fn.role).toBeUndefined();
         expect(fn.events).toEqual([]);
       }

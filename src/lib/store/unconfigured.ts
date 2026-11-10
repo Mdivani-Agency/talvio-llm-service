@@ -15,7 +15,6 @@ export function createUnconfiguredStore(): Store {
     outbox: proxy(),
     execution: proxy(),
     documents: proxy(),
-    uploads: proxy(),
     sessions: proxy(),
   };
 }

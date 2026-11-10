@@ -59,7 +59,8 @@ describe('loadConfig', () => {
       LLM_OUTBOX_TABLE: 'talvio-llm-outbox-dev',
     };
     const queueUrls = JSON.stringify({ v1: 'https://sqs.us-west-1.amazonaws.com/1/work-v1' });
-    const withQueues = { ...base, WORK_QUEUE_URLS: queueUrls };
+    const buckets = { LLM_QUARANTINE_BUCKET: 'q', LLM_ARTIFACTS_BUCKET: 'a' };
+    const withQueues = { ...base, ...buckets, WORK_QUEUE_URLS: queueUrls };
 
     it('needs all four Terraform-owned table names', () => {
       expect(loadConfig({ ...withQueues, STORE_DRIVER: 'dynamodb', ...tables })).toMatchObject({
@@ -92,7 +93,7 @@ describe('loadConfig', () => {
     });
 
     it('needs a work queue URL for the pipeline release', () => {
-      const env = { ...base, STORE_DRIVER: 'dynamodb', ...tables };
+      const env = { ...base, ...buckets, STORE_DRIVER: 'dynamodb', ...tables };
       const urls = queueUrls;
       expect(() => loadConfig(env)).toThrow(new ConfigError(['WORK_QUEUE_URLS']));
       expect(loadConfig({ ...env, WORK_QUEUE_URLS: urls })).toMatchObject({
@@ -105,6 +106,24 @@ describe('loadConfig', () => {
       expect(() => loadConfig({ ...env, WORK_QUEUE_URLS: 'not json' })).toThrow(
         new ConfigError(['WORK_QUEUE_URLS']),
       );
+    });
+
+    it('needs both buckets on deployed stages, and OCR settings once a type is listed', () => {
+      const env = { ...base, STORE_DRIVER: 'dynamodb', ...tables, WORK_QUEUE_URLS: queueUrls };
+      expect(() => loadConfig(env)).toThrow(new ConfigError(['LLM_QUARANTINE_BUCKET']));
+      const ok = { ...env, ...buckets };
+      expect(loadConfig(ok).OCR_CONTENT_TYPES).toEqual([]);
+      expect(() => loadConfig({ ...ok, OCR_CONTENT_TYPES: 'application/pdf' })).toThrow(
+        new ConfigError(['OCR_CONTENT_TYPES']),
+      );
+      expect(
+        loadConfig({
+          ...ok,
+          OCR_CONTENT_TYPES: 'application/pdf, image/png',
+          OCR_TOPIC_ARN: 'arn:topic',
+          OCR_ROLE_ARN: 'arn:role',
+        }).OCR_CONTENT_TYPES,
+      ).toEqual(['application/pdf', 'image/png']);
     });
   });
 });

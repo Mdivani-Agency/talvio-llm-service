@@ -30,7 +30,6 @@ import {
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const UPLOAD_TTL_MS = 24 * 60 * 60 * 1000;
 const CONTENT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const UPLOAD_GRANT_TTL_MS = 5 * 60 * 1000;
 
 export type MemoryStoreOptions = {
   /** Replaces the default plan table, so tests can exercise a plan the service does not issue yet. */
@@ -477,7 +476,7 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
     },
 
     documents: {
-      async create(ownerId, request, now) {
+      async create(ownerId, request, objectKey, now) {
         const document: DocumentRecord = {
           documentId: randomUUID(),
           ownerId,
@@ -485,38 +484,92 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
           contentType: request.contentType,
           sizeBytes: request.sizeBytes,
           sha256: request.sha256,
+          objectKey,
+          objectVersionId: null,
           pageCount: null,
           ocrPages: [],
+          rejectionCode: null,
+          warnings: [],
+          artifact: null,
+          ocr: null,
           createdAt: now,
           expiresAt: new Date(now.getTime() + UPLOAD_TTL_MS),
         };
         documents.set(document.documentId, document);
-        return document;
+        return { ...document };
       },
       async get(ownerId, documentId) {
-        return owned(documents.get(documentId), ownerId);
-      },
-      async complete(ownerId, documentId, now) {
         const document = owned(documents.get(documentId), ownerId);
-        if (document?.status === 'awaiting_upload') {
-          document.status = 'validating';
-          document.expiresAt = new Date(now.getTime() + CONTENT_TTL_MS);
+        return document ? { ...document } : null;
+      },
+      async complete(ownerId, documentId, pin, now) {
+        const document = owned(documents.get(documentId), ownerId);
+        if (!document) return null;
+        if (document.status !== 'awaiting_upload')
+          return { document: { ...document }, event: null };
+        document.status = 'validating';
+        document.objectVersionId = pin.versionId;
+        document.expiresAt = new Date(now.getTime() + CONTENT_TTL_MS);
+        const event = {
+          eventId: randomUUID(),
+          type: 'document.validate' as const,
+          ownerId,
+          jobId: documentId,
+          operation: null,
+          /** Document work is not pinned: it goes to the current release's queue. */
+          pipelineReleaseId: 'current',
+          createdAt: now,
+          availableAt: now,
+          dispatched: false,
+        };
+        events.push(event);
+        const { dispatched: _dispatched, ...published } = event;
+        return { document: { ...document }, event: published };
+      },
+      async beginOcr(ownerId, documentId, ocr) {
+        const document = owned(documents.get(documentId), ownerId);
+        if (!document || document.status !== 'validating' || document.ocr) return false;
+        document.ocr = {
+          state: 'starting',
+          clientToken: ocr.clientToken,
+          textractJobId: null,
+          pages: ocr.pages,
+        };
+        return true;
+      },
+      async recordOcrJob(ownerId, documentId, clientToken, textractJobId) {
+        const document = owned(documents.get(documentId), ownerId);
+        if (
+          !document ||
+          document.status !== 'validating' ||
+          document.ocr?.state !== 'starting' ||
+          document.ocr.clientToken !== clientToken
+        ) {
+          return false;
         }
-        return document;
+        document.ocr = { ...document.ocr, state: 'started', textractJobId };
+        return true;
+      },
+      async finish(ownerId, documentId, outcome) {
+        const document = owned(documents.get(documentId), ownerId);
+        if (!document || document.status !== 'validating') return null;
+        document.warnings = outcome.warnings;
+        if (outcome.kind === 'ready') {
+          document.status = 'ready';
+          document.pageCount = outcome.pageCount;
+          document.ocrPages = outcome.ocrPages;
+          document.artifact = outcome.artifact;
+        } else {
+          document.status = 'rejected';
+          document.rejectionCode = outcome.code;
+        }
+        return { ...document };
       },
       async delete(ownerId, documentId) {
-        return owned(documents.get(documentId), ownerId) ? documents.delete(documentId) : false;
-      },
-    },
-
-    uploads: {
-      async create(document, now) {
-        return {
-          method: 'PUT',
-          url: `https://uploads.local.invalid/${document.documentId}`,
-          headers: { 'content-type': document.contentType },
-          expiresAt: new Date(now.getTime() + UPLOAD_GRANT_TTL_MS),
-        };
+        const document = owned(documents.get(documentId), ownerId);
+        if (!document) return null;
+        documents.delete(documentId);
+        return { ...document };
       },
     },
 

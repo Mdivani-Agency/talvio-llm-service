@@ -1,8 +1,12 @@
 import type { SQSBatchResponse, SQSEvent } from 'aws-lambda';
 
+import type { BlobStore } from '../lib/blob';
 import type { Logger } from '../lib/log';
 import { dispatchEvent, parseWorkMessage, type WorkQueues } from '../lib/queue';
 import type { Store } from '../lib/store';
+import { parseOcrNotification } from '../lib/ocr';
+import { validateDocument } from './documents';
+import { completeOcr, type OcrConfig } from './ocr';
 import { jobError, runJob, type Executors } from './run';
 
 /*
@@ -18,9 +22,16 @@ type Clock = { now?: () => Date };
  * An infrastructure error (store unavailable) fails the message so SQS redelivers it.
  */
 export function createWorkerHandler(
-  deps: { store: Store; executors: Executors; logger: Logger } & Clock,
+  deps: {
+    store: Store;
+    blobs: BlobStore;
+    executors: Executors;
+    logger: Logger;
+    ocr?: OcrConfig;
+  } & Clock,
 ) {
   return async (event: SQSEvent): Promise<SQSBatchResponse> => {
+    const now = deps.now ?? (() => new Date());
     const batchItemFailures: SQSBatchResponse['batchItemFailures'] = [];
     for (const record of event.Records) {
       const message = parseWorkMessage(record.body);
@@ -29,11 +40,50 @@ export function createWorkerHandler(
         continue;
       }
       try {
-        await runJob(deps, message);
+        if (message.type === 'document.validate') {
+          await validateDocument(deps, message, now());
+        } else if (message.type === 'document.ocr_done') {
+          // The OCR completion consumer is added with the Textract path.
+          deps.logger.log('warn', { event: 'work_message_ignored' });
+        } else {
+          await runJob(deps, message);
+        }
       } catch (error) {
         deps.logger.log('error', {
           event: 'run_error',
           jobId: message.jobId,
+          errorName: error instanceof Error ? error.name : 'unknown',
+        });
+        batchItemFailures.push({ itemIdentifier: record.messageId });
+      }
+    }
+    return { batchItemFailures };
+  };
+}
+
+/**
+ * Textract completion (SNS to SQS): finishes the document the operation belongs to. A notification
+ * that cannot be matched yet is returned to the queue; duplicates and strangers are acknowledged.
+ */
+export function createOcrHandler(
+  deps: { store: Store; blobs: BlobStore; logger: Logger; ocr?: OcrConfig } & Clock,
+) {
+  return async (event: SQSEvent): Promise<SQSBatchResponse> => {
+    const now = deps.now ?? (() => new Date());
+    const batchItemFailures: SQSBatchResponse['batchItemFailures'] = [];
+    for (const record of event.Records) {
+      const notification = parseOcrNotification(record.body);
+      if (!notification || !deps.ocr) {
+        deps.logger.log('warn', { event: 'ocr_notification_ignored' });
+        continue;
+      }
+      try {
+        const outcome = await completeOcr(deps, deps.ocr.client, notification, now());
+        deps.logger.log('info', { event: 'ocr_completion', outcome });
+        if (outcome === 'retry') batchItemFailures.push({ itemIdentifier: record.messageId });
+      } catch (error) {
+        deps.logger.log('error', {
+          event: 'ocr_error',
           errorName: error instanceof Error ? error.name : 'unknown',
         });
         batchItemFailures.push({ itemIdentifier: record.messageId });
@@ -48,7 +98,7 @@ const DISPATCH_PASSES = 10;
 
 /** Scheduled: sends every due outbox event that the immediate dispatch missed. */
 export function createDispatcher(
-  deps: { store: Store; queues: WorkQueues; logger: Logger } & Clock,
+  deps: { store: Store; queues: WorkQueues; logger: Logger; currentRelease: string } & Clock,
 ) {
   return async (): Promise<{ dispatched: number; failed: number }> => {
     const now = deps.now ?? (() => new Date());
@@ -134,6 +184,26 @@ export function createDeadLetterHandler(deps: { store: Store; logger: Logger } &
         continue;
       }
       try {
+        if (message.type.startsWith('document.')) {
+          // A document whose validation could not run ends visibly instead of idling in `validating`.
+          await deps.store.documents.finish(
+            message.ownerId,
+            message.jobId,
+            {
+              kind: 'rejected',
+              code: 'unusable_document',
+              warnings: [
+                {
+                  code: 'validation_unavailable',
+                  message: 'The document could not be checked. Upload it again.',
+                },
+              ],
+            },
+            now(),
+          );
+          deps.logger.log('warn', { event: 'dead_letter', outcome: 'document' });
+          continue;
+        }
         const result = await deps.store.execution.abandon(
           message.ownerId,
           message.jobId,

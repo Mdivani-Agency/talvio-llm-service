@@ -64,9 +64,11 @@ describe('dispatchEvent', () => {
     const queues = createMemoryQueues();
     const markDispatched = jest.spyOn(store.outbox, 'markDispatched');
     queues.failNext = 1;
-    await expect(dispatchEvent({ store, queues }, event(), new Date())).rejects.toThrow();
+    await expect(
+      dispatchEvent({ store, queues, currentRelease: 'v1' }, event(), new Date()),
+    ).rejects.toThrow();
     expect(markDispatched).not.toHaveBeenCalled();
-    await dispatchEvent({ store, queues }, event(), new Date());
+    await dispatchEvent({ store, queues, currentRelease: 'v1' }, event(), new Date());
     expect(markDispatched).toHaveBeenCalledTimes(1);
     expect(queues.sent).toHaveLength(1);
   });
