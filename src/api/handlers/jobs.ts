@@ -10,10 +10,11 @@ import {
 
 import { ApiError, notFound } from '@lib/errors';
 import { contentHash } from '@lib/hash';
-import { IdempotencyConflictError, type JobRecord } from '@lib/store';
+import { QuotaExceededError } from '@lib/limits';
+import { IdempotencyConflictError, InvalidCursorError, type JobRecord } from '@lib/store';
 import { parseWith } from '@lib/validation';
 
-import { userOf, type Deps, type RouteHandler } from '../types';
+import { planOf, userOf, type Deps, type RouteHandler } from '../types';
 
 /** First poll delay suggested to clients; they back off to about five seconds. */
 const POLL_AFTER_MS = 1_000;
@@ -110,6 +111,11 @@ async function checkReferences(deps: Deps, ownerId: string, request: CreateJobRe
   }
 }
 
+/** A refused limit becomes the contract's retryable quota error; anything else passes through. */
+function asQuotaError(error: unknown): unknown {
+  return error instanceof QuotaExceededError ? new ApiError('quota_exceeded') : error;
+}
+
 export const createJob: RouteHandler = async (request, deps) => {
   const ownerId = userOf(request);
   const key = request.headers['idempotency-key'];
@@ -143,6 +149,7 @@ export const createJob: RouteHandler = async (request, deps) => {
   try {
     const { job, replayed } = await deps.store.jobs.admit({
       ownerId,
+      plan: planOf(request),
       idempotencyKey: key,
       requestHash,
       request: body,
@@ -161,7 +168,7 @@ export const createJob: RouteHandler = async (request, deps) => {
     if (error instanceof IdempotencyConflictError) {
       throw new ApiError('idempotency_conflict');
     }
-    throw error;
+    throw asQuotaError(error);
   }
 };
 
@@ -180,7 +187,14 @@ export const listJobs: RouteHandler = async (request, deps) => {
       issues: [{ path: 'cursor', message: 'Wrong format.' }],
     });
   }
-  const page = await deps.store.jobs.list(userOf(request), cursor, LIST_LIMIT);
+  const page = await deps.store.jobs.list(userOf(request), cursor, LIST_LIMIT).catch((error) => {
+    if (error instanceof InvalidCursorError) {
+      throw new ApiError('invalid_request', {
+        issues: [{ path: 'cursor', message: 'Wrong format.' }],
+      });
+    }
+    throw error;
+  });
   return { status: 200, body: { jobs: page.jobs.map(toJob), nextCursor: page.nextCursor } };
 };
 
@@ -211,7 +225,9 @@ export const retryJob: RouteHandler = async (request, deps) => {
   if (!eligible) {
     throw new ApiError('invalid_retry');
   }
-  const retried = await deps.store.jobs.retry(ownerId, jobId, request.now);
+  const retried = await deps.store.jobs
+    .retry(ownerId, jobId, request.now)
+    .catch((error) => Promise.reject(asQuotaError(error)));
   if (!retried) {
     throw notFound();
   }

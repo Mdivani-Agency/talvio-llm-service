@@ -50,4 +50,43 @@ describe('loadConfig', () => {
       loadConfig({ STAGE: 'local', SUPABASE_URL: 'http://127.0.0.1:54321' }),
     ).not.toThrow();
   });
+
+  describe('dynamodb store', () => {
+    const tables = {
+      LLM_JOBS_TABLE: 'talvio-llm-jobs-dev',
+      LLM_SESSIONS_TABLE: 'talvio-llm-sessions-dev',
+      LLM_QUOTAS_TABLE: 'talvio-llm-quotas-dev',
+      LLM_OUTBOX_TABLE: 'talvio-llm-outbox-dev',
+    };
+
+    it('needs all four Terraform-owned table names', () => {
+      expect(loadConfig({ ...base, STORE_DRIVER: 'dynamodb', ...tables })).toMatchObject({
+        STORE_DRIVER: 'dynamodb',
+        ...tables,
+      });
+      const { LLM_OUTBOX_TABLE: _omitted, ...three } = tables;
+      expect(() => loadConfig({ ...base, STORE_DRIVER: 'dynamodb', ...three })).toThrow(
+        new ConfigError(['STORE_DRIVER']),
+      );
+    });
+
+    it('allows a local DynamoDB endpoint only on local and test stages', () => {
+      const env = { ...base, STORE_DRIVER: 'dynamodb', ...tables };
+      const endpoint = 'http://localhost:8000';
+      expect(() => loadConfig({ ...env, DYNAMODB_ENDPOINT: endpoint })).toThrow(
+        new ConfigError(['DYNAMODB_ENDPOINT']),
+      );
+      expect(
+        loadConfig({ ...env, STAGE: 'test', DYNAMODB_ENDPOINT: endpoint }).DYNAMODB_ENDPOINT,
+      ).toBe(endpoint);
+    });
+
+    it('reads the account-wide daily ceiling', () => {
+      expect(loadConfig(base).ACCOUNT_DAILY_CEILING_MICRO_USD).toBe(25_000_000);
+      expect(
+        loadConfig({ ...base, ACCOUNT_DAILY_CEILING_MICRO_USD: '5000000' })
+          .ACCOUNT_DAILY_CEILING_MICRO_USD,
+      ).toBe(5_000_000);
+    });
+  });
 });

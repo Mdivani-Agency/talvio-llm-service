@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { DEFAULT_ACCOUNT_DAILY_CEILING_MICRO_USD } from './limits';
+
 /*
  * Runtime configuration, validated once per cold start. Errors name the variables that are
  * wrong, never their values.
@@ -18,10 +20,24 @@ const configSchema = z
       .transform((value) => value.split(',').map((item) => item.trim()))
       .pipe(z.array(z.enum(['ES256', 'RS256', 'EdDSA'])).min(1)),
     /**
-     * Where jobs, sessions and documents live. `unconfigured` answers every store call with
-     * 503 until the DynamoDB store lands (MDI-214). `memory` is for local runs and tests only.
+     * Where jobs, sessions and documents live. `dynamodb` is the deployed store and needs the
+     * four table names. `unconfigured` answers every store call with 503. `memory` is for local
+     * runs and tests only.
      */
-    STORE_DRIVER: z.enum(['unconfigured', 'memory']).default('unconfigured'),
+    STORE_DRIVER: z.enum(['unconfigured', 'memory', 'dynamodb']).default('unconfigured'),
+    /** Terraform-owned tables, read from SSM /<stage>/dynamodb/llm-* by serverless.ts. */
+    LLM_JOBS_TABLE: z.string().min(1).optional(),
+    LLM_SESSIONS_TABLE: z.string().min(1).optional(),
+    LLM_QUOTAS_TABLE: z.string().min(1).optional(),
+    LLM_OUTBOX_TABLE: z.string().min(1).optional(),
+    /** DynamoDB Local for CI and local runs. Refused on deployed stages. */
+    DYNAMODB_ENDPOINT: z.url({ protocol: /^https?$/ }).optional(),
+    /** Account-wide spend ceiling per UTC day, in micro-USD. */
+    ACCOUNT_DAILY_CEILING_MICRO_USD: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .default(DEFAULT_ACCOUNT_DAILY_CEILING_MICRO_USD),
     /** Largest JSON request body accepted, in bytes. */
     MAX_BODY_BYTES: z.coerce.number().int().min(1_024).max(6_000_000).default(1_000_000),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
@@ -33,6 +49,25 @@ const configSchema = z
       path: ['STORE_DRIVER'],
     },
   )
+  .refine(
+    (config) =>
+      config.STORE_DRIVER !== 'dynamodb' ||
+      [
+        config.LLM_JOBS_TABLE,
+        config.LLM_SESSIONS_TABLE,
+        config.LLM_QUOTAS_TABLE,
+        config.LLM_OUTBOX_TABLE,
+      ].every(Boolean),
+    {
+      message:
+        'the dynamodb store needs LLM_JOBS_TABLE, LLM_SESSIONS_TABLE, LLM_QUOTAS_TABLE and LLM_OUTBOX_TABLE',
+      path: ['STORE_DRIVER'],
+    },
+  )
+  .refine((config) => !config.DYNAMODB_ENDPOINT || ['local', 'test'].includes(config.STAGE), {
+    message: 'DYNAMODB_ENDPOINT is only allowed on local and test stages',
+    path: ['DYNAMODB_ENDPOINT'],
+  })
   .refine(
     (config) =>
       config.STAGE === 'local' ||

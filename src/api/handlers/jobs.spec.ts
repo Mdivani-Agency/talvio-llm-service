@@ -112,6 +112,26 @@ describe('POST /v1/jobs', () => {
     expect(other?.jobId).not.toBe(first?.jobId);
   });
 
+  it('answers 429 when the plan’s active-job limit is reached, but still replays', async () => {
+    const keys = ['quota-key-0001', 'quota-key-0002', 'quota-key-0003'];
+    expect((await post(parseRequest(keys[0]!), tokenA, keys[0])).statusCode).toBe(202);
+    expect((await post(parseRequest(keys[1]!), tokenA, keys[1])).statusCode).toBe(202);
+
+    const refused = await post(parseRequest(keys[2]!), tokenA, keys[2]);
+    expect(refused.statusCode).toBe(429);
+    expect(json(refused.body)).toMatchObject({
+      error: { code: 'quota_exceeded', retryable: true },
+    });
+
+    // A replay of an admitted job costs nothing, so it works at the limit.
+    const replay = await post(parseRequest(keys[0]!), tokenA, keys[0]);
+    expect(replay.statusCode).toBe(202);
+    expect(json(replay.body)).toMatchObject({ replayed: true });
+
+    // Another user is unaffected.
+    expect((await post(parseRequest(keys[2]!), tokenB, keys[2])).statusCode).toBe(202);
+  });
+
   it('validates the operation schema and reports paths without values', async () => {
     const text = 'x'.repeat(100_001);
     const response = await post(parseRequest('parse-00000001', text), tokenA, 'parse-00000001');

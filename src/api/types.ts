@@ -46,3 +46,11 @@ export function userOf(request: RouteRequest): string {
   }
   return request.auth.userId;
 }
+
+/** The signed-in user's plan, from the verified token. */
+export function planOf(request: RouteRequest): AuthContext['plan'] {
+  if (!request.auth) {
+    throw new Error('route requires authentication');
+  }
+  return request.auth.plan;
+}

@@ -2,7 +2,7 @@ import { ApiError } from '../errors';
 import type { Store } from './types';
 
 /**
- * The store used until the DynamoDB-backed store exists (MDI-214). Request validation still
+ * The store used when STORE_DRIVER is not set (and for upload grants until MDI-216). Request validation still
  * runs; any call that would read or write state answers 503.
  */
 export function createUnconfiguredStore(): Store {
@@ -12,6 +12,7 @@ export function createUnconfiguredStore(): Store {
   const proxy = <T extends object>() => new Proxy({} as T, { get: () => unavailable });
   return {
     jobs: proxy(),
+    outbox: proxy(),
     documents: proxy(),
     uploads: proxy(),
     sessions: proxy(),
