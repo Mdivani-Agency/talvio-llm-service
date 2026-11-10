@@ -608,6 +608,23 @@ export function describeStoreContract(name: string, make: MakeHarness) {
         await expect(admit(alice, 'key-00000003')).resolves.toMatchObject({ replayed: false });
       });
 
+      it('publishes nothing from a worker that finishes after the deadline', async () => {
+        const a = await admit(alice, 'key-00000001');
+        const { lease } = await claimed(alice, a.job.jobId);
+        const result = await h.store.execution.succeed(
+          lease,
+          { n: 1 },
+          { spendCommittedMicroUsd: 0 },
+          later(11 * 60_000),
+        );
+        expect(result).toBe('stale');
+        expect(await h.store.jobs.get(alice, a.job.jobId)).toMatchObject({
+          status: 'expired',
+          error: { code: 'deadline_exceeded' },
+          spendReservedMicroUsd: 0,
+        });
+      });
+
       it('ends a stuck job visibly and keeps it retryable by its owner', async () => {
         const { job } = await admit(alice, 'key-00000001');
         const { lease } = await claimed(alice, job.jobId);

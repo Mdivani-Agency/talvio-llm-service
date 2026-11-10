@@ -307,6 +307,11 @@ export function createDynamoExecutionStore(db: Db): ExecutionStore {
     async succeed(lease, result, settlement, now) {
       const it = await owned(lease);
       if (!it) return (await alreadyEnded(lease, 'succeeded')) ? 'applied' : 'stale';
+      if (now >= deadline(it)) {
+        // Finished after the deadline: nothing is published; the job expires and settles.
+        await terminate(it, 'expired', now, { error: deadlineError(it.jobId) });
+        return 'stale';
+      }
       const ok = await terminate(it, 'succeeded', now, {
         error: null,
         committedTotal: settlement.spendCommittedMicroUsd,

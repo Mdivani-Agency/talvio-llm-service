@@ -364,6 +364,11 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
         if (job?.status === 'succeeded' && job.exec.fence === lease.fence + 1) return 'applied';
         const live = leased(lease);
         if (!live) return 'stale';
+        if (now >= live.deadlineAt) {
+          // Finished after the deadline: nothing is published; the job expires and settles.
+          settle(live, 'expired', now, { error: deadlineError(live) });
+          return 'stale';
+        }
         settle(live, 'succeeded', now, { result, error: null }, settlement.spendCommittedMicroUsd);
         return 'applied';
       },
