@@ -159,6 +159,56 @@ export function preflight(take: Take): QuotaFailure | null {
   return null;
 }
 
+/**
+ * Ends a held job's hold when it finishes: frees the active slot, gives back what was reserved and
+ * keeps what was actually spent (`committedTotal`, the job's whole committed spend after this).
+ */
+export function settleQuota(
+  db: Db,
+  ownerId: string,
+  job: { spendReservedMicroUsd: number; spendCommittedMicroUsd: number },
+  committedTotal: number,
+  day: string,
+): TransactItem[] {
+  const reservedDelta = -job.spendReservedMicroUsd;
+  const committedDelta = committedTotal - job.spendCommittedMicroUsd;
+  const expires = bucketExpiry(day);
+  const settle = (key: { pk: string; sk: string }): TransactItem => ({
+    Update: {
+      TableName: db.tables.quotas,
+      Key: key,
+      UpdateExpression:
+        'ADD #reserved :reserved, #committed :committed, #used :used SET #exp = if_not_exists(#exp, :exp)',
+      ExpressionAttributeNames: {
+        '#reserved': 'reservedMicro',
+        '#committed': 'committedMicro',
+        '#used': 'usedMicro',
+        '#exp': 'expiresAt',
+      },
+      ExpressionAttributeValues: {
+        ':reserved': reservedDelta,
+        ':committed': committedDelta,
+        ':used': reservedDelta + committedDelta,
+        ':exp': expires,
+      },
+    },
+  });
+  return [
+    {
+      Update: {
+        TableName: db.tables.quotas,
+        Key: activeKey(ownerId),
+        UpdateExpression: 'ADD #active :neg',
+        ExpressionAttributeNames: { '#active': 'active' },
+        ExpressionAttributeValues: { ':neg': -1 },
+      },
+    },
+    ...(reservedDelta === 0 && committedDelta === 0
+      ? []
+      : [settle(dayKey(ownerId, day)), settle(accountKey(day))]),
+  ];
+}
+
 export type QuotaFailure = 'jobs_per_day' | 'active_jobs' | 'daily_spend' | 'account_ceiling';
 
 /**

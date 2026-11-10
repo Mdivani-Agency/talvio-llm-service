@@ -13,6 +13,7 @@ export function createUnconfiguredStore(): Store {
   return {
     jobs: proxy(),
     outbox: proxy(),
+    execution: proxy(),
     documents: proxy(),
     uploads: proxy(),
     sessions: proxy(),

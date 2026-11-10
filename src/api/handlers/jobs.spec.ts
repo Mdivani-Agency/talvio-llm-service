@@ -76,6 +76,23 @@ describe('POST /v1/jobs', () => {
     expect(jobSchema.parse(json(job.body))).toMatchObject({ status: 'queued', result: null });
   });
 
+  it('queues the work at once, and only once for a replay', async () => {
+    await post(parseRequest('parse-00000010'), tokenA, 'parse-00000010');
+    await post(parseRequest('parse-00000010'), tokenA, 'parse-00000010');
+    expect(app.queues.sent).toHaveLength(1);
+    expect(app.queues.sent[0]).toMatchObject({ releaseId: 'v1' });
+    expect(JSON.stringify(app.queues.sent[0])).not.toContain('Nino');
+  });
+
+  it('still accepts the job when the queue is down, leaving the event for the dispatcher', async () => {
+    app.queues.failNext = 1;
+    const response = await post(parseRequest('parse-00000011'), tokenA, 'parse-00000011');
+    expect(response.statusCode).toBe(202);
+    expect(app.queues.sent).toHaveLength(0);
+    const pending = await app.store.outbox.pending(10, new Date());
+    expect(pending.some((e) => e.type === 'job.admitted')).toBe(true);
+  });
+
   it('requires an Idempotency-Key equal to clientRequestId', async () => {
     const missing = await post(parseRequest('parse-00000001'), tokenA);
     expect(json(missing.body)?.error.code).toBe('idempotency_key_required');

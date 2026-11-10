@@ -97,6 +97,53 @@ describe('serverless.ts', () => {
       },
     );
 
+    type Fn = { role?: string; timeout: number; events: Record<string, unknown>[] };
+    type Fns = { functions: Record<'worker' | 'dlq' | 'dispatcher' | 'reconciler', Fn> };
+
+    it.each(['dev', 'prod'])('wires the %s background functions from SSM', (stage) => {
+      const { functions } = loadFor(['--stage', stage]) as unknown as Fns;
+      const ssm = (name: string) => `\${ssm:/${stage}/llm/${name}}`;
+      expect(functions.worker.role).toBe(ssm('worker-role-arn'));
+      expect(functions.dlq.role).toBe(ssm('worker-role-arn'));
+      expect(functions.dispatcher.role).toBe(ssm('scheduler-role-arn'));
+      expect(functions.reconciler.role).toBe(ssm('scheduler-role-arn'));
+      expect(functions.worker.events).toEqual([
+        {
+          sqs: {
+            arn: ssm('work-queue-arn-v1'),
+            batchSize: 1,
+            functionResponseType: 'ReportBatchItemFailures',
+            maximumConcurrency: 5,
+          },
+        },
+      ]);
+      expect(functions.dlq.events).toEqual([
+        expect.objectContaining({ sqs: expect.objectContaining({ arn: ssm('work-dlq-arn-v1') }) }),
+      ]);
+      expect(functions.dispatcher.events).toEqual([{ schedule: ssm('dispatcher-schedule') }]);
+      expect(functions.reconciler.events).toEqual([{ schedule: ssm('reconciler-schedule') }]);
+      // The queue visibility timeout (6 x worker timeout) must outlive an invocation.
+      expect(functions.worker.timeout).toBe(300);
+    });
+
+    it.each(['dev', 'prod'])('passes the %s release and queue URLs to every function', (stage) => {
+      const { provider } = loadFor(['--stage', stage]) as unknown as Env;
+      expect(provider.environment.PIPELINE_RELEASE).toBe('v1');
+      expect(JSON.parse(provider.environment.WORK_QUEUE_URLS ?? '')).toEqual({
+        v1: `\${ssm:/${stage}/llm/work-queue-url-v1}`,
+      });
+    });
+
+    it('has no triggers, roles or queue URLs for local runs', () => {
+      const loaded = loadFor(['--stage', 'local']) as unknown as Fns & Env;
+      const { worker, dlq, dispatcher, reconciler } = loaded.functions;
+      for (const fn of [worker, dlq, dispatcher, reconciler]) {
+        expect(fn.role).toBeUndefined();
+        expect(fn.events).toEqual([]);
+      }
+      expect(loaded.provider.environment.WORK_QUEUE_URLS).toBeUndefined();
+    });
+
     it('references no table in SSM for local runs', () => {
       const { provider } = loadFor(['--stage', 'local']) as unknown as Env;
       expect(Object.keys(provider.environment).filter((name) => name.endsWith('_TABLE'))).toEqual(

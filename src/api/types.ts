@@ -1,5 +1,5 @@
 import type { Logger } from '@lib/log';
-import type { Store } from '@lib/store';
+import type { OutboxEvent, Store } from '@lib/store';
 
 import type { AuthContext } from './authorizer';
 
@@ -26,6 +26,10 @@ export type RouteResult = {
 export type Deps = {
   store: Store;
   logger: Logger;
+  /** Pipeline release new jobs are pinned to. */
+  pipelineReleaseId: string;
+  /** Hands an admitted job's outbox event to its work queue right away; the dispatcher repairs a miss. */
+  dispatch: (event: OutboxEvent) => Promise<void>;
 };
 
 export type RouteHandler = (request: RouteRequest, deps: Deps) => Promise<RouteResult>;

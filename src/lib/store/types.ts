@@ -31,6 +31,23 @@ export type JobStage =
   | 'publishing'
   | 'done';
 
+/** Bookkeeping the executor keeps on a job. Content-free: counters, ids and times only. */
+export type JobExecution = {
+  /** Pipeline release that admitted the job; its queue and executables finish it. */
+  pipelineReleaseId: string;
+  /** Raised by every claim. A worker may write only while its fence is still the job's. */
+  fence: number;
+  leaseExpiresAt: Date | null;
+  /** When a job in retry_wait may run again. */
+  availableAt: Date | null;
+  /** Application attempts used per step; at most MAX_STEP_ATTEMPTS each. */
+  stepAttempts: Record<string, number>;
+  /** Provider operation ids (model request, OCR job) per step, so a redelivery resumes instead of repeating. */
+  checkpoints: Record<string, Record<string, string>>;
+  /** Identifier of the external operation a waiting_external job is parked on. */
+  externalRef: string | null;
+};
+
 export type JobRecord = {
   jobId: string;
   ownerId: string;
@@ -56,6 +73,7 @@ export type JobRecord = {
   /** The published result envelope; validated against the contract before it is returned. */
   result: unknown | null;
   error: JobError | null;
+  exec: JobExecution;
 };
 
 export class IdempotencyConflictError extends Error {
@@ -76,6 +94,8 @@ export class InvalidCursorError extends Error {
 export type AdmitJobInput = {
   ownerId: string;
   plan: Plan;
+  /** Release the job is pinned to; it runs on that release's queue. */
+  pipelineReleaseId: string;
   idempotencyKey: string;
   requestHash: string;
   request: CreateJobRequest;
@@ -91,7 +111,9 @@ export interface JobStore {
    * quota), throws IdempotencyConflictError for the same key with a different hash and
    * QuotaExceededError when a limit would be crossed.
    */
-  admit(input: AdmitJobInput): Promise<{ job: JobRecord; replayed: boolean }>;
+  admit(
+    input: AdmitJobInput,
+  ): Promise<{ job: JobRecord; replayed: boolean; event: OutboxEvent | null }>;
   get(ownerId: string, jobId: string): Promise<JobRecord | null>;
   list(
     ownerId: string,
@@ -109,19 +131,87 @@ export interface JobStore {
   delete(ownerId: string, jobId: string): Promise<boolean>;
 }
 
+export type OutboxEventType =
+  | 'job.admitted'
+  | 'job.retried'
+  | 'job.requeue'
+  | 'job.retry'
+  | 'job.resume';
+
 export type OutboxEvent = {
   eventId: string;
-  type: 'job.admitted' | 'job.retried';
+  type: OutboxEventType;
   ownerId: string;
   jobId: string;
   operation: Operation;
+  pipelineReleaseId: string;
   createdAt: Date;
+  /** Not dispatched before this time (retry backoff). */
+  availableAt: Date;
 };
 
-/** Events written with the job in one transaction; the dispatcher (MDI-215) hands them to the work queues. */
+/** Events written with the job's state change in one transaction; the dispatcher hands them to the work queues. */
 export interface OutboxStore {
-  pending(limit: number): Promise<OutboxEvent[]>;
+  /** Undispatched events that are due at `now`, oldest first. */
+  pending(limit: number, now: Date): Promise<OutboxEvent[]>;
   markDispatched(event: OutboxEvent, now: Date): Promise<void>;
+}
+
+/** Proof of a claim. Every write the worker makes carries it and fails once the fence has moved on. */
+export type Lease = {
+  ownerId: string;
+  jobId: string;
+  fence: number;
+  expiresAt: Date;
+};
+
+export type SkipReason = 'missing' | 'terminal' | 'leased' | 'not_due' | 'waiting' | 'expired';
+
+export type ClaimResult =
+  | { kind: 'claimed'; job: JobRecord; lease: Lease }
+  | { kind: 'skipped'; reason: SkipReason };
+
+/** `stale`: the lease is no longer the job's (cancelled, deleted, expired or claimed by a newer worker). */
+export type WriteResult = 'applied' | 'stale';
+
+export type Settlement = {
+  /** Actual spend to keep, in micro-USD; the rest of the reservation is released. */
+  spendCommittedMicroUsd: number;
+};
+
+export type ReconcileResult = 'expired' | 'requeued' | 'settled' | 'missing';
+
+/**
+ * State transitions of the executor. Each is one conditional write (or transaction) guarded by the
+ * lease, so duplicate delivery, crashes and late workers cannot publish twice or over a newer lease.
+ * None of them is held open across a model or OCR call.
+ */
+export interface ExecutionStore {
+  /** Takes the lease when the job is runnable, expiring it instead when its deadline has passed. */
+  claim(ownerId: string, jobId: string, now: Date, leaseMs: number): Promise<ClaimResult>;
+  extend(lease: Lease, now: Date, leaseMs: number): Promise<Lease | null>;
+  /** Remembers provider ids for a step and moves the job's visible stage to it. */
+  checkpoint(
+    lease: Lease,
+    step: JobStage,
+    refs: Record<string, string>,
+    now: Date,
+  ): Promise<WriteResult>;
+  /** Publishes the result and settles quota. A repeat by the same lease is applied again, not duplicated. */
+  succeed(lease: Lease, result: unknown, settlement: Settlement, now: Date): Promise<WriteResult>;
+  fail(lease: Lease, error: JobError, settlement: Settlement, now: Date): Promise<WriteResult>;
+  /** retry_wait until `availableAt`, counting one attempt against `step`. */
+  retryLater(lease: Lease, step: JobStage, availableAt: Date, now: Date): Promise<WriteResult>;
+  /** waiting_external: gives up the lease so no worker stays open for a long OCR or user wait. */
+  waitExternal(lease: Lease, ref: string, now: Date): Promise<WriteResult>;
+  /** An external completion wakes the job parked on `ref`; false when nothing was waiting on it. */
+  resume(ownerId: string, jobId: string, ref: string, now: Date): Promise<boolean>;
+  /** Ends a non-terminal job that a dead letter or an operator found stuck. */
+  abandon(ownerId: string, jobId: string, error: JobError, now: Date): Promise<WriteResult>;
+  /** Jobs whose next check is due: expired leases, undelivered work, deadlines. */
+  due(now: Date, limit: number): Promise<{ ownerId: string; jobId: string }[]>;
+  /** Expires the job when past its deadline, else republishes its work. */
+  reconcile(ownerId: string, jobId: string, now: Date): Promise<ReconcileResult>;
 }
 
 export type DocumentRecord = {
@@ -236,6 +326,7 @@ export interface SessionStore {
 export type Store = {
   jobs: JobStore;
   outbox: OutboxStore;
+  execution: ExecutionStore;
   documents: DocumentStore;
   uploads: UploadGrants;
   sessions: SessionStore;

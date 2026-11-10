@@ -58,20 +58,22 @@ describe('loadConfig', () => {
       LLM_QUOTAS_TABLE: 'talvio-llm-quotas-dev',
       LLM_OUTBOX_TABLE: 'talvio-llm-outbox-dev',
     };
+    const queueUrls = JSON.stringify({ v1: 'https://sqs.us-west-1.amazonaws.com/1/work-v1' });
+    const withQueues = { ...base, WORK_QUEUE_URLS: queueUrls };
 
     it('needs all four Terraform-owned table names', () => {
-      expect(loadConfig({ ...base, STORE_DRIVER: 'dynamodb', ...tables })).toMatchObject({
+      expect(loadConfig({ ...withQueues, STORE_DRIVER: 'dynamodb', ...tables })).toMatchObject({
         STORE_DRIVER: 'dynamodb',
         ...tables,
       });
       const { LLM_OUTBOX_TABLE: _omitted, ...three } = tables;
-      expect(() => loadConfig({ ...base, STORE_DRIVER: 'dynamodb', ...three })).toThrow(
+      expect(() => loadConfig({ ...withQueues, STORE_DRIVER: 'dynamodb', ...three })).toThrow(
         new ConfigError(['STORE_DRIVER']),
       );
     });
 
     it('allows a local DynamoDB endpoint only on local and test stages', () => {
-      const env = { ...base, STORE_DRIVER: 'dynamodb', ...tables };
+      const env = { ...withQueues, STORE_DRIVER: 'dynamodb', ...tables };
       const endpoint = 'http://localhost:8000';
       expect(() => loadConfig({ ...env, DYNAMODB_ENDPOINT: endpoint })).toThrow(
         new ConfigError(['DYNAMODB_ENDPOINT']),
@@ -87,6 +89,22 @@ describe('loadConfig', () => {
         loadConfig({ ...base, ACCOUNT_DAILY_CEILING_MICRO_USD: '5000000' })
           .ACCOUNT_DAILY_CEILING_MICRO_USD,
       ).toBe(5_000_000);
+    });
+
+    it('needs a work queue URL for the pipeline release', () => {
+      const env = { ...base, STORE_DRIVER: 'dynamodb', ...tables };
+      const urls = queueUrls;
+      expect(() => loadConfig(env)).toThrow(new ConfigError(['WORK_QUEUE_URLS']));
+      expect(loadConfig({ ...env, WORK_QUEUE_URLS: urls })).toMatchObject({
+        PIPELINE_RELEASE: 'v1',
+        WORK_QUEUE_URLS: { v1: 'https://sqs.us-west-1.amazonaws.com/1/work-v1' },
+      });
+      expect(() => loadConfig({ ...env, WORK_QUEUE_URLS: urls, PIPELINE_RELEASE: 'v2' })).toThrow(
+        ConfigError,
+      );
+      expect(() => loadConfig({ ...env, WORK_QUEUE_URLS: 'not json' })).toThrow(
+        new ConfigError(['WORK_QUEUE_URLS']),
+      );
     });
   });
 });

@@ -23,6 +23,12 @@ export type LogFields = {
   operation?: string;
   replayed?: boolean;
   variables?: string[];
+  /** Executor bookkeeping: what a run did, why it skipped, which step, how many items. */
+  outcome?: string;
+  reason?: string;
+  step?: string;
+  count?: number;
+  failed?: number;
 };
 
 const ORDER: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 };

@@ -147,15 +147,25 @@ export const createJob: RouteHandler = async (request, deps) => {
   await checkReferences(deps, ownerId, body);
 
   try {
-    const { job, replayed } = await deps.store.jobs.admit({
+    const { job, replayed, event } = await deps.store.jobs.admit({
       ownerId,
       plan: planOf(request),
+      pipelineReleaseId: deps.pipelineReleaseId,
       idempotencyKey: key,
       requestHash,
       request: body,
       now: request.now,
       deadlineAt: new Date(request.now.getTime() + LIMITS.jobDeadlineMs),
     });
+    if (event) {
+      // Right after the commit; a miss costs at most one dispatcher interval, never the job.
+      await deps.dispatch(event).catch(() =>
+        deps.logger.log('warn', {
+          event: 'dispatch_deferred',
+          correlationId: request.correlationId,
+        }),
+      );
+    }
     deps.logger.log('info', {
       event: 'job_admitted',
       correlationId: request.correlationId,

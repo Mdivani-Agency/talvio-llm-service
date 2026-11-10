@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto';
 
 import { BatchGetCommand, GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
-import { TERMINAL_JOB_STATUSES, type JobError } from '@talvio/llm-contracts';
 
+import { DISPATCH_GRACE_MS } from '../../execution';
 import {
   DEFAULT_ACCOUNT_DAILY_CEILING_MICRO_USD,
   PLAN_LIMITS,
@@ -21,7 +21,6 @@ import {
   InvalidCursorError,
   type AdmitJobInput,
   type JobRecord,
-  type JobStage,
   type JobStore,
   type OutboxEvent,
 } from '../types';
@@ -34,92 +33,19 @@ import {
   type Db,
   type TransactItem,
 } from './db';
+import {
+  held,
+  idemKey,
+  jobKey,
+  resultKey,
+  toRecord,
+  type JobItem,
+  type ResultItem,
+  type IdemItem,
+} from './job-items';
 import { eventItem } from './outbox';
+import { sweepDelete, sweepPut } from './sweep';
 import { failedAt, limitsKey, preflight, quotaFailure, releaseQuota, takeQuota } from './quota';
-
-const jobKey = (ownerId: string, jobId: string) => ({ pk: userKey(ownerId), sk: `JOB#${jobId}` });
-const idemKey = (ownerId: string, key: string) => ({ pk: userKey(ownerId), sk: `IDEM#${key}` });
-const resultKey = (ownerId: string, jobId: string) => ({
-  pk: userKey(ownerId),
-  sk: `RESULT#${jobId}`,
-});
-
-type JobItem = {
-  pk: string;
-  sk: string;
-  gsi1pk: string;
-  gsi1sk: string;
-  jobId: string;
-  ownerId: string;
-  operation: JobRecord['operation'];
-  status: JobRecord['status'];
-  stage: JobStage;
-  sessionId: string | null;
-  contextRevisionId: string | null;
-  parentJobId: string | null;
-  idempotencyKey: string;
-  requestHash: string;
-  plan: Plan;
-  limitsVersion: string;
-  budgetCapMicroUsd: number;
-  spendReservedMicroUsd: number;
-  spendCommittedMicroUsd: number;
-  pricingVersion: string;
-  createdAt: string;
-  updatedAt: string;
-  deadlineAt: string;
-  error: JobError | null;
-  expiresAt: number;
-};
-
-type IdemItem = { jobId: string; requestHash: string; expiresAt: number };
-type ResultItem = { result: unknown; expiresAt: number };
-
-/**
- * A succeeded job whose result has aged out (7 days) while its metadata remains (30 days) is shown
- * as expired, so the record still satisfies the contract's "result exactly when succeeded".
- */
-const RESULT_GONE = (jobId: string): JobError => ({
-  code: 'deadline_exceeded',
-  message: 'The result of this job is no longer available.',
-  retryable: false,
-  correlationId: jobId,
-});
-
-const toRecord = (item: JobItem, result: unknown | null): JobRecord => {
-  if (item.status === 'succeeded' && result === null) {
-    return toRecordAs(
-      { ...item, status: 'expired', stage: 'done', error: RESULT_GONE(item.jobId) },
-      null,
-    );
-  }
-  return toRecordAs(item, result);
-};
-
-const toRecordAs = (item: JobItem, result: unknown | null): JobRecord => ({
-  jobId: item.jobId,
-  ownerId: item.ownerId,
-  operation: item.operation,
-  status: item.status,
-  stage: item.stage,
-  sessionId: item.sessionId,
-  contextRevisionId: item.contextRevisionId,
-  parentJobId: item.parentJobId,
-  idempotencyKey: item.idempotencyKey,
-  requestHash: item.requestHash,
-  plan: item.plan,
-  budgetCapMicroUsd: item.budgetCapMicroUsd,
-  spendReservedMicroUsd: item.spendReservedMicroUsd,
-  spendCommittedMicroUsd: item.spendCommittedMicroUsd,
-  pricingVersion: item.pricingVersion,
-  createdAt: new Date(item.createdAt),
-  updatedAt: new Date(item.updatedAt),
-  deadlineAt: new Date(item.deadlineAt),
-  result,
-  error: item.error,
-});
-
-const held = (job: Pick<JobRecord, 'status'>) => !TERMINAL_JOB_STATUSES.includes(job.status);
 
 /** Compare-and-set attempts for cancel, retry and delete when a worker changes the job meanwhile. */
 const ATTEMPTS = 3;
@@ -206,13 +132,22 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
     if (existing.requestHash !== requestHash) {
       throw new IdempotencyConflictError();
     }
-    return { job: existing, replayed: true };
+    return { job: existing, replayed: true, event: null };
   };
 
   const transact = (items: TransactItem[]) => runTransaction(db, items);
 
   async function admit(input: AdmitJobInput) {
-    const { ownerId, plan, idempotencyKey, requestHash, request, now, deadlineAt } = input;
+    const {
+      ownerId,
+      plan,
+      pipelineReleaseId,
+      idempotencyKey,
+      requestHash,
+      request,
+      now,
+      deadlineAt,
+    } = input;
 
     // A replay is answered before any quota is touched.
     const existing = await findByIdempotencyKey(ownerId, idempotencyKey);
@@ -257,6 +192,15 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
       updatedAt: createdAt,
       deadlineAt: deadlineAt.toISOString(),
       error: null,
+      exec: {
+        pipelineReleaseId,
+        fence: 0,
+        leaseExpiresAt: null,
+        availableAt: null,
+        stepAttempts: {},
+        checkpoints: {},
+        externalRef: null,
+      },
       expiresAt,
     };
     const event: OutboxEvent = {
@@ -265,7 +209,9 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
       ownerId,
       jobId,
       operation: request.operation,
+      pipelineReleaseId,
       createdAt: now,
+      availableAt: now,
     };
 
     try {
@@ -290,6 +236,7 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
         },
         ...takeQuota(db, ownerId, take),
         { Put: { TableName: tables.outbox, Item: eventItem(event, expiresAt) } },
+        sweepPut(db, { ownerId, jobId, deadlineAt }, new Date(now.getTime() + DISPATCH_GRACE_MS)),
       ]);
     } catch (error) {
       if (failedAt(error, 1)) {
@@ -305,7 +252,7 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
       }
       throw error;
     }
-    return { job: toRecord(record, null), replayed: false };
+    return { job: toRecord(record, null), replayed: false, event };
   }
 
   async function list(ownerId: string, cursor: string | null, limit: number) {
@@ -399,6 +346,7 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
             },
           },
           ...releaseQuota(db, ownerId, job, utcDay(job.createdAt)),
+          sweepDelete(db, ownerId, jobId),
         ]);
         return load(ownerId, jobId, now);
       } catch (error) {
@@ -431,7 +379,9 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
         ownerId,
         jobId,
         operation: job.operation,
+        pipelineReleaseId: job.exec.pipelineReleaseId,
         createdAt: now,
+        availableAt: now,
       };
       try {
         await transact([
@@ -440,12 +390,14 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
               TableName: tables.jobs,
               Key: jobKey(ownerId, jobId),
               UpdateExpression:
-                'SET #status = :queued, #stage = :admission, #error = :none, updatedAt = :now, spendReservedMicroUsd = :reserve',
+                'SET #status = :queued, #stage = :admission, #error = :none, updatedAt = :now, spendReservedMicroUsd = :reserve, #exec.#attempts = :noAttempts',
               ConditionExpression: '#status = :seen',
               ExpressionAttributeNames: {
                 '#status': 'status',
                 '#stage': 'stage',
                 '#error': 'error',
+                '#exec': 'exec',
+                '#attempts': 'stepAttempts',
               },
               ExpressionAttributeValues: {
                 ':queued': 'queued',
@@ -454,11 +406,13 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
                 ':seen': job.status,
                 ':now': now.toISOString(),
                 ':reserve': reserve,
+                ':noAttempts': {},
               },
             },
           },
           ...takeQuota(db, ownerId, take),
           { Put: { TableName: tables.outbox, Item: eventItem(event, expiresAt) } },
+          sweepPut(db, job, new Date(now.getTime() + DISPATCH_GRACE_MS)),
         ]);
         return load(ownerId, jobId, now);
       } catch (error) {
@@ -495,6 +449,7 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
           { Delete: { TableName: tables.jobs, Key: idemKey(ownerId, job.idempotencyKey) } },
           { Delete: { TableName: tables.jobs, Key: resultKey(ownerId, jobId) } },
           ...(held(job) ? releaseQuota(db, ownerId, job, utcDay(job.createdAt)) : []),
+          sweepDelete(db, ownerId, jobId),
         ]);
         return true;
       } catch (error) {

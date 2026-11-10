@@ -137,6 +137,7 @@ suite('DynamoDB', () => {
       const { job } = await store.jobs.admit({
         ownerId: owner,
         plan: 'free',
+        pipelineReleaseId: 'v1',
         idempotencyKey: 'key-expired-1',
         requestHash: 'h',
         request: {
@@ -168,6 +169,7 @@ suite('DynamoDB', () => {
       store.jobs.admit({
         ownerId: owner,
         plan: 'free',
+        pipelineReleaseId: 'v1',
         idempotencyKey: key,
         requestHash: key,
         request: parse,
@@ -267,6 +269,7 @@ suite('DynamoDB', () => {
       const { job } = await jobs.admit({
         ownerId: owner,
         plan: 'free',
+        pipelineReleaseId: 'v1',
         idempotencyKey: 'key-ttl-0001',
         requestHash: 'h',
         request: {
@@ -301,6 +304,7 @@ suite('DynamoDB', () => {
       const { job } = await jobs.admit({
         ownerId: owner,
         plan: 'free',
+        pipelineReleaseId: 'v1',
         idempotencyKey: 'key-result-01',
         requestHash: 'h',
         request: {

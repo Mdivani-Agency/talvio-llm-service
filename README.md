@@ -48,6 +48,8 @@ yarn start              # serverless-offline on :3005 with the memory store (nee
 | `SUPABASE_URL`                                                                    | SSM `/<stage>/supabase/url` (local: shell/.env) | https outside local/test                                                        |
 | `STORE_DRIVER`                                                                    | `serverless.ts` per stage                       | `dynamodb` on dev/prod; `memory` only on local/test; `unconfigured` answers 503 |
 | `LLM_{JOBS,SESSIONS,QUOTAS,OUTBOX}_TABLE`                                         | SSM `/<stage>/dynamodb/llm-*` (dev/prod)        | Terraform-owned tables; required by the `dynamodb` driver                       |
+| `PIPELINE_RELEASE`                                                                | `serverless.ts` (`v1`)                          | release new jobs are pinned to; its queue, DLQ and executors finish them        |
+| `WORK_QUEUE_URLS`                                                                 | SSM `/<stage>/llm/work-queue-url-<release>`     | JSON map release to URL; required by the `dynamodb` driver on dev/prod          |
 | `ACCOUNT_DAILY_CEILING_MICRO_USD`                                                 | default `5000000` (USD 5)                       | account-wide spend per UTC day; change per stage without a code change          |
 | `SUPABASE_JWT_AUDIENCE`, `SUPABASE_JWT_ALGORITHMS`, `MAX_BODY_BYTES`, `LOG_LEVEL` | defaults                                        | see `src/lib/config.ts`                                                         |
 
@@ -64,6 +66,20 @@ All state is in the four Terraform-owned DynamoDB tables (`src/lib/store/dynamo/
 - **Admission** is one `TransactWriteItems`: the job, its idempotency record, the quota and spend holds (user day, user active, account day) and the outbox event. A replay is answered before any of that and consumes no quota. Transactions are never held across model or OCR calls.
 - **Limits** come from `src/lib/limits.ts` (20 jobs per UTC day, 2 active, USD 1.00 per day, USD 0.05 per job, planning budget USD 0.10, account ceiling) by the token's `plan`, and a per-user override item (`U#<user>` / `LIMITS` in the quotas table, any subset of the fields) changes them without a deploy.
 - **Retention** is DynamoDB TTL on `expiresAt`: incomplete uploads 24 h, result payloads, sessions, documents and answers 7 days, job metadata, idempotency records and outbox events 30 days. TTL deletion can lag, so reads also treat an expired item as missing.
-- **Outbox** events sit in a sparse index until the dispatcher (MDI-215) marks them dispatched.
+- **Outbox** events sit in a sparse index until the dispatcher marks them dispatched (see below).
 
 Tests: the same contract suite (`src/lib/store/store.contract.ts`) runs on the memory store and, when `TEST_DYNAMODB_ENDPOINT` is set, on DynamoDB Local. CI starts DynamoDB Local as a service container; locally, point the variable at any DynamoDB Local (`http://localhost:8000`).
+
+## Durable execution (MDI-215)
+
+A job runs on a Terraform-owned standard SQS queue per pipeline release. Messages are content-free (`{v, type, ownerId, jobId, eventId}`); the job record is the source of truth, so a message is only a prompt to look at it.
+
+- **Enqueue.** `POST /v1/jobs` sends the admission event right after the commit. If that fails the job is still accepted and the **dispatcher** (scheduled) sends it from the outbox. A lost ack or a duplicate send is harmless.
+- **Lease and fence.** A worker claims a job with a lease (6 min, longer than the 5 min Lambda timeout) and a fence number that every claim and handoff increments. Every write (checkpoint, retry, wait, result) is conditional on `status = running` and the worker's fence, so a worker whose lease expired, or whose job was cancelled or deleted, cannot publish. Repeating a terminal write with the same lease answers `applied` once and changes nothing.
+- **Retries.** Max 3 attempts per step with jittered exponential backoff. A retry is parked as a delayed outbox event (`availableAt`), so no Lambda sleeps. A transient error retries; a permanent error fails the job; unknown errors count as transient and log only the error name. The job deadline (10 min from admission) bounds everything. An owner retry of a retryable failure keeps the job's identity and config and resets the attempts; edited input is a new job.
+- **Waiting.** `waiting_external` parks a job on an external reference (OCR) with no worker held; `resume` continues it from the completion consumer.
+- **Reconciler** (scheduled). Reads a sparse sweep index (never scans) for live jobs whose next check is due: it republishes work whose event was lost, reclaims expired leases, expires jobs past their deadline and resolves DLQ leftovers. It honours ownership, deletion, deadline and budget like any worker.
+- **Settlement.** Reservations settle exactly once on any terminal state; actual spend is kept (up to the job cap) and the rest is released. Model calls may repeat after an ambiguous failure; publication and quotas are idempotent.
+- **Queue settings.** Batch size 1 with partial-batch-failure reporting, bounded `maximumConcurrency`, visibility timeout 6x the Lambda timeout, receive limit then DLQ. The DLQ handler marks the job failed with a retryable `internal_error`.
+
+Not built yet: executors per operation (a claimed job currently fails with retryable `dependency_unavailable`), the OCR completion consumer, and per-invocation usage settlement; they arrive with the extraction and model tickets.
