@@ -300,6 +300,81 @@ describe('POST /v1/jobs', () => {
     expect(response.statusCode).toBe(400);
     expect(json(response.body)?.error.issues?.[0]?.path).toBe('input.analysisJobId');
   });
+
+  const questions = (key: string, sessionId: string, contextRevisionId: string, round = 1) => ({
+    schemaVersion: '1.0',
+    clientRequestId: key,
+    operation: 'generate_questions',
+    sessionId,
+    contextRevisionId,
+    parentJobId: null,
+    input: { analysisJobId: null, round, maxQuestions: 5 },
+  });
+
+  it('gives each question round to one job at a time, in order', async () => {
+    const session = await openSession(tokenA);
+    const contextId = session.latestContext.contextRevisionId;
+    const first = await post(
+      questions('questions-0010', session.sessionId, contextId),
+      tokenA,
+      'questions-0010',
+    );
+    expect(first.statusCode).toBe(202);
+    const firstId = json(first.body)?.jobId as string;
+    expect((await app.store.sessions.get(USER_A, session.sessionId))?.rounds[1]).toEqual({
+      jobId: firstId,
+      slots: 5,
+    });
+
+    // The same round again, and a round out of order, are refused.
+    for (const [key, round] of [
+      ['questions-0011', 1],
+      ['questions-0012', 2],
+    ] as const) {
+      const refused = await post(questions(key, session.sessionId, contextId, round), tokenA, key);
+      expect(refused.statusCode).toBe(409);
+      expect(json(refused.body)?.error.code).toBe('stale_context');
+    }
+
+    // Once the holder ends without a set, the round can be asked for again.
+    await app.handle(
+      event('POST', '/v1/jobs/{jobId}/cancel', { params: { jobId: firstId }, token: tokenA }),
+    );
+    const again = await post(
+      questions('questions-0013', session.sessionId, contextId),
+      tokenA,
+      'questions-0013',
+    );
+    expect(again.statusCode).toBe(202);
+    expect((await app.store.sessions.get(USER_A, session.sessionId))?.rounds[1]?.jobId).toBe(
+      json(again.body)?.jobId,
+    );
+  });
+
+  it('refuses an analysis or questions job whose input cannot fit the job budget', async () => {
+    const session = await openSession(tokenA);
+    const contextId = session.latestContext.contextRevisionId;
+    app.store.testing.setLimitOverride(USER_A, { jobCapMicroUsd: 2_000 });
+    const analysis = {
+      schemaVersion: '1.0',
+      clientRequestId: 'analysis-0001',
+      operation: 'analyze_resume',
+      sessionId: session.sessionId,
+      contextRevisionId: contextId,
+      parentJobId: null,
+      input: { sections: [] },
+    };
+    for (const [body, key] of [
+      [analysis, 'analysis-0001'],
+      [questions('questions-0020', session.sessionId, contextId), 'questions-0020'],
+    ] as const) {
+      const response = await post(body, tokenA, key);
+      expect(response.statusCode).toBe(422);
+      expect(json(response.body)?.error.code).toBe('budget_exceeded_preflight');
+    }
+    // Nothing was admitted and no round was taken.
+    expect((await app.store.sessions.get(USER_A, session.sessionId))?.rounds).toEqual({});
+  });
 });
 
 describe('job lifecycle routes', () => {

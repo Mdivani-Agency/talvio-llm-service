@@ -1,7 +1,12 @@
 import { randomUUID } from 'crypto';
 
 import { LIMITS, TERMINAL_JOB_STATUSES } from '@talvio/llm-contracts';
-import type { CreateJobRequest } from '@talvio/llm-contracts';
+import type {
+  ContextRevision,
+  CreateJobRequest,
+  JobDescription,
+  SourceSnapshot,
+} from '@talvio/llm-contracts';
 
 import { DISPATCH_GRACE_MS, MAX_STEP_ATTEMPTS, abandonable } from '../execution';
 import { committedSpend } from '../ledger';
@@ -23,9 +28,11 @@ import {
   type JobStage,
   type Lease,
   type OutboxEvent,
+  type AnswerSubmission,
   type QuestionSetRecord,
   type SessionRecord,
   type Store,
+  QuestionRoundTakenError,
 } from './types';
 
 /** Seven-day session lifetime and 24-hour incomplete-upload expiry (design §13). */
@@ -45,7 +52,9 @@ export type MemoryStore = Store & {
     setLimitOverride(ownerId: string, override: LimitOverride | null): void;
     setJob(jobId: string, patch: Partial<JobRecord>): void;
     setDocument(documentId: string, patch: Partial<DocumentRecord>): void;
-    addQuestionSet(set: Omit<QuestionSetRecord, 'questionSetId'>): QuestionSetRecord;
+    addQuestionSet(
+      set: Omit<QuestionSetRecord, 'questionSetId' | 'jobId'> & { jobId?: string | null },
+    ): QuestionSetRecord;
   };
 };
 
@@ -63,6 +72,11 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
   const documents = new Map<string, DocumentRecord>();
   const sessions = new Map<string, SessionRecord>();
   const questionSets = new Map<string, QuestionSetRecord>();
+  const contexts = new Map<
+    string,
+    { revision: ContextRevision; source: SourceSnapshot; jobDescription: JobDescription | null }
+  >();
+  const submissions: (AnswerSubmission & { sessionId: string })[] = [];
   /** Deleted jobs still count toward their day, as the DynamoDB counters keep them. */
   const deleted: { ownerId: string; day: string; spent: number }[] = [];
 
@@ -215,6 +229,7 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
         request,
         now,
         deadlineAt,
+        questionRound,
       }) {
         const existing = findByKey(ownerId, idempotencyKey);
         if (existing) {
@@ -226,8 +241,29 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
         const reserve = limitsFor(ownerId, plan).jobBudgetMicroUsd;
         checkQuota(ownerId, limitsFor(ownerId, plan), utcDay(now), reserve, true);
         const session = 'sessionId' in request ? request : null;
+        const jobId = randomUUID();
+        if (questionRound && session) {
+          const held = sessions.get(session.sessionId);
+          const holder = held?.rounds[questionRound.round];
+          const replaced = questionRound.replaces ? jobs.get(questionRound.replaces) : undefined;
+          const free = questionRound.replaces
+            ? holder?.jobId === questionRound.replaces &&
+              (!replaced || ['failed', 'cancelled', 'expired'].includes(replaced.status))
+            : !holder;
+          if (
+            !held ||
+            held.ownerId !== ownerId ||
+            held.status !== 'open' ||
+            held.questionRoundsUsed !== questionRound.round - 1 ||
+            held.questionsIssued + questionRound.slots > LIMITS.questionsPerSession ||
+            !free
+          ) {
+            throw new QuestionRoundTakenError();
+          }
+          held.rounds[questionRound.round] = { jobId, slots: questionRound.slots };
+        }
         const job: JobRecord = {
-          jobId: randomUUID(),
+          jobId,
           ownerId,
           operation: request.operation,
           status: 'queued',
@@ -619,10 +655,16 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
           latestContext: firstContext(sessionId, context, now),
           questionRoundsUsed: 0,
           questionsIssued: 0,
+          rounds: {},
           createdAt: now,
           expiresAt: new Date(now.getTime() + SESSION_TTL_MS),
         };
         sessions.set(sessionId, session);
+        contexts.set(session.latestContext.contextRevisionId, {
+          revision: session.latestContext,
+          source: structuredClone(context.source),
+          jobDescription: structuredClone(context.jobDescription),
+        });
         return { session, replayed: false };
       },
       async get(ownerId, sessionId) {
@@ -637,6 +679,11 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
           return 'stale';
         }
         session.latestContext = firstContext(sessionId, context, now);
+        contexts.set(session.latestContext.contextRevisionId, {
+          revision: session.latestContext,
+          source: structuredClone(context.source),
+          jobDescription: structuredClone(context.jobDescription),
+        });
         return session.latestContext;
       },
       async getQuestionSet(ownerId, sessionId, questionSetId) {
@@ -651,7 +698,15 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
         questionSets.set(set.questionSetId, set);
         return set;
       },
-      async addAnswers({ ownerId, sessionId, baseContextRevisionId, answersHash, now }) {
+      async addAnswers({
+        ownerId,
+        sessionId,
+        baseContextRevisionId,
+        questionSetId,
+        answers,
+        answersHash,
+        now,
+      }) {
         const session = owned(sessions.get(sessionId), ownerId);
         if (!session) {
           return null;
@@ -659,11 +714,70 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
         if (session.latestContext.contextRevisionId !== baseContextRevisionId) {
           return 'stale';
         }
-        session.latestContext = answeredContext(session.latestContext, answersHash, now).context;
+        const previous = contexts.get(session.latestContext.contextRevisionId);
+        const next = answeredContext(session.latestContext, answersHash, now);
+        session.latestContext = next.context;
+        submissions.push({
+          sessionId,
+          answerRevisionId: next.answerRevisionId,
+          questionSetId,
+          answers: structuredClone(answers),
+          createdAt: now,
+        });
+        if (previous)
+          contexts.set(next.context.contextRevisionId, { ...previous, revision: next.context });
         return session.latestContext;
       },
+      async context(ownerId, sessionId, contextRevisionId) {
+        const session = owned(sessions.get(sessionId), ownerId);
+        const stored = contexts.get(contextRevisionId);
+        if (!session || !stored || stored.revision.sessionId !== sessionId) return null;
+        const upTo = new Date(stored.revision.createdAt);
+        return {
+          revision: stored.revision,
+          source: structuredClone(stored.source),
+          jobDescription: structuredClone(stored.jobDescription),
+          questionSets: [...questionSets.values()]
+            .filter((set) => set.sessionId === sessionId)
+            .sort((a, b) => a.round - b.round),
+          answers: submissions
+            .filter((entry) => entry.sessionId === sessionId && entry.createdAt <= upTo)
+            .map(({ sessionId: _session, ...entry }) => structuredClone(entry)),
+        };
+      },
+      async issueQuestionSet(lease, set, now) {
+        const { ownerId, jobId } = lease;
+        const session = owned(sessions.get(set.sessionId), ownerId);
+        if (!session) return 'stale';
+        const existing = questionSets.get(set.questionSetId);
+        if (existing) return existing.jobId === jobId ? 'issued' : 'stale';
+        const job = leased(lease);
+        if (
+          !job ||
+          now >= job.deadlineAt ||
+          session.expiresAt <= now ||
+          session.rounds[set.round]?.jobId !== jobId ||
+          session.questionRoundsUsed !== set.round - 1
+        ) {
+          return 'stale';
+        }
+        questionSets.set(set.questionSetId, structuredClone({ ...set, jobId }));
+        session.questionRoundsUsed = set.round;
+        session.questionsIssued += set.questions.length;
+        return 'issued';
+      },
       async delete(ownerId, sessionId) {
-        return owned(sessions.get(sessionId), ownerId) ? sessions.delete(sessionId) : false;
+        if (!owned(sessions.get(sessionId), ownerId)) return false;
+        for (const [id, set] of questionSets)
+          if (set.sessionId === sessionId) questionSets.delete(id);
+        for (const [id, ctx] of contexts)
+          if (ctx.revision.sessionId === sessionId) contexts.delete(id);
+        submissions.splice(
+          0,
+          submissions.length,
+          ...submissions.filter((entry) => entry.sessionId !== sessionId),
+        );
+        return sessions.delete(sessionId);
       },
     },
 
@@ -691,7 +805,7 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
         if (set.questions.length > LIMITS.questionsPerSet) {
           throw new Error('too many questions');
         }
-        const record = { ...set, questionSetId: randomUUID() };
+        const record = { jobId: null, ...set, questionSetId: randomUUID() };
         questionSets.set(record.questionSetId, record);
         return record;
       },

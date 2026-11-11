@@ -6,7 +6,9 @@ import { createNoQueues, createSqsQueues, type WorkQueues } from '../lib/queue';
 import { createStore, type Store } from '../lib/store';
 import { createBedrockGuardrail, createBedrockModel } from '../lib/model/client';
 import type { OcrConfig } from './ocr';
+import { createAnalyzeExecutor } from './analyze';
 import { createParseExecutor } from './parse';
+import { createQuestionsExecutor } from './questions';
 import type { Executors } from './run';
 
 /*
@@ -48,7 +50,12 @@ export function createExecutors(deps: {
     config.GUARDRAIL_ID,
     config.GUARDRAIL_VERSION,
   );
-  return { parse_document: createParseExecutor({ ...deps, model, guardrail }) };
+  const modelDeps = { ...deps, model, guardrail };
+  return {
+    parse_document: createParseExecutor(modelDeps),
+    analyze_resume: createAnalyzeExecutor(modelDeps),
+    generate_questions: createQuestionsExecutor(modelDeps),
+  };
 }
 
 let cached: Runtime | undefined;

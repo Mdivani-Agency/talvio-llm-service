@@ -11,8 +11,18 @@ import {
 import { ApiError, notFound } from '@lib/errors';
 import { contentHash } from '@lib/hash';
 import { QuotaExceededError } from '@lib/limits';
-import { maxUtf8Bytes, parseFits } from '@lib/model/preflight';
-import { IdempotencyConflictError, InvalidCursorError, type JobRecord } from '@lib/store';
+import { callFits, maxUtf8Bytes, parseFits } from '@lib/model/preflight';
+import { ANALYZE_PACK, analysisMessage } from '@lib/prompts/analyze-resume';
+import { QUESTIONS_PACK, questionsMessage } from '@lib/prompts/generate-questions';
+import { untrustedText } from '@lib/prompts/session-input';
+import { prepareSession } from '@lib/session-input';
+import {
+  IdempotencyConflictError,
+  InvalidCursorError,
+  QuestionRoundTakenError,
+  type AdmitJobInput,
+  type JobRecord,
+} from '@lib/store';
 import { parseWith } from '@lib/validation';
 
 import { planOf, userOf, type Deps, type RouteHandler } from '../types';
@@ -119,6 +129,29 @@ async function checkAffordable(
   request: CreateJobRequest,
   budgetMicroUsd: number,
 ) {
+  if (request.operation === 'analyze_resume' || request.operation === 'generate_questions') {
+    const context = await deps.store.sessions.context(
+      ownerId,
+      request.sessionId,
+      request.contextRevisionId,
+    );
+    if (!context) throw notFound();
+    const { input, askedTopics } = prepareSession(context);
+    const user =
+      request.operation === 'analyze_resume'
+        ? analysisMessage(input, request.input.sections)
+        : questionsMessage({
+            ...input,
+            maxQuestions: request.input.maxQuestions,
+            analysis: null,
+            askedTopics,
+          });
+    const pack = request.operation === 'analyze_resume' ? ANALYZE_PACK : QUESTIONS_PACK;
+    if (!callFits(pack, user, untrustedText(input).length, budgetMicroUsd)) {
+      throw new ApiError('budget_exceeded_preflight');
+    }
+    return;
+  }
   if (request.operation !== 'parse_document') return;
   let size: { chars: number; bytes: number };
   if (request.input.kind === 'text') {
@@ -131,6 +164,42 @@ async function checkAffordable(
   if (!parseFits(size, budgetMicroUsd)) {
     throw new ApiError('budget_exceeded_preflight');
   }
+}
+
+const roundTaken = () =>
+  new ApiError('stale_context', {
+    message: 'This question round was already requested or is not the next one.',
+  });
+
+/**
+ * The question round a generate_questions request takes (design §12): the next round of the
+ * session, with as many question slots as it asks for and the session has left. A round whose
+ * earlier job ended without a set can be taken again; one that is running or issued cannot.
+ */
+async function takeRound(
+  deps: Deps,
+  ownerId: string,
+  request: CreateJobRequest,
+): Promise<AdmitJobInput['questionRound'] | undefined> {
+  if (request.operation !== 'generate_questions') return undefined;
+  const session = await deps.store.sessions.get(ownerId, request.sessionId);
+  if (!session) throw notFound();
+  const { round, maxQuestions } = request.input;
+  if (round !== session.questionRoundsUsed + 1) throw roundTaken();
+  const holder = session.rounds[round];
+  let replaces: string | null = null;
+  if (holder) {
+    const previous = await deps.store.jobs.get(ownerId, holder.jobId);
+    if (previous && !['failed', 'cancelled', 'expired'].includes(previous.status)) {
+      throw roundTaken();
+    }
+    replaces = holder.jobId;
+  }
+  const slots = Math.max(
+    0,
+    Math.min(maxQuestions, LIMITS.questionsPerSession - session.questionsIssued),
+  );
+  return { round, slots, replaces };
 }
 
 /** A refused limit becomes the contract's retryable quota error; anything else passes through. */
@@ -171,6 +240,8 @@ export const createJob: RouteHandler = async (request, deps) => {
   const limits = await deps.store.jobs.limitsFor(ownerId, planOf(request));
   await checkAffordable(deps, ownerId, body, limits.jobBudgetMicroUsd);
 
+  const questionRound = await takeRound(deps, ownerId, body);
+
   try {
     const { job, replayed, event } = await deps.store.jobs.admit({
       ownerId,
@@ -181,6 +252,7 @@ export const createJob: RouteHandler = async (request, deps) => {
       request: body,
       now: request.now,
       deadlineAt: new Date(request.now.getTime() + LIMITS.jobDeadlineMs),
+      ...(questionRound ? { questionRound } : {}),
     });
     if (event) {
       // Right after the commit; a miss costs at most one dispatcher interval, never the job.
@@ -202,6 +274,9 @@ export const createJob: RouteHandler = async (request, deps) => {
   } catch (error) {
     if (error instanceof IdempotencyConflictError) {
       throw new ApiError('idempotency_conflict');
+    }
+    if (error instanceof QuestionRoundTakenError) {
+      throw roundTaken();
     }
     throw asQuotaError(error);
   }

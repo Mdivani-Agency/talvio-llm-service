@@ -7,7 +7,9 @@ import type { Plan } from '../plans';
 import {
   IdempotencyConflictError,
   InvalidCursorError,
+  QuestionRoundTakenError,
   type ContextInput,
+  type Lease,
   type Store,
 } from './types';
 
@@ -870,6 +872,7 @@ export function describeStoreContract(name: string, make: MakeHarness) {
           questions: [],
           sourceHash: 'a'.repeat(64),
           jobDescriptionHash: null,
+          jobId: null,
         };
         expect(await h.store.sessions.saveQuestionSet(bob, set, NOW)).toBeNull();
         expect(await h.store.sessions.saveQuestionSet(alice, set, NOW)).toEqual(set);
@@ -908,6 +911,253 @@ export function describeStoreContract(name: string, make: MakeHarness) {
         ).toBe('stale');
       });
 
+      it('keeps each revision’s content and the answers given up to it', async () => {
+        const { session } = await create(alice, 'session-0001');
+        const first = session.latestContext;
+        const ctx = await h.store.sessions.context(
+          alice,
+          session.sessionId,
+          first.contextRevisionId,
+        );
+        expect(ctx).toMatchObject({
+          revision: first,
+          source: {},
+          jobDescription: null,
+          answers: [],
+        });
+        expect(
+          await h.store.sessions.context(bob, session.sessionId, first.contextRevisionId),
+        ).toBeNull();
+        expect(await h.store.sessions.context(alice, session.sessionId, randomUUID())).toBeNull();
+
+        const set = h.store.sessions.saveQuestionSet(
+          alice,
+          {
+            questionSetId: randomUUID(),
+            sessionId: session.sessionId,
+            round: 1,
+            questions: [],
+            sourceHash: first.sourceHash,
+            jobDescriptionHash: null,
+            jobId: null,
+          },
+          NOW,
+        );
+        const saved = (await set)!;
+        const answers = [{ questionId: 'q1', status: 'skipped' as const }];
+        const answered = await h.store.sessions.addAnswers({
+          ownerId: alice,
+          sessionId: session.sessionId,
+          baseContextRevisionId: first.contextRevisionId,
+          questionSetId: saved.questionSetId,
+          answers,
+          answersHash: 'd'.repeat(64),
+          now: new Date(NOW.getTime() + 1_000),
+        });
+        if (!answered || answered === 'stale') throw new Error('not answered');
+        const next = await h.store.sessions.context(
+          alice,
+          session.sessionId,
+          answered.contextRevisionId,
+        );
+        expect(next).toMatchObject({
+          revision: answered,
+          source: {},
+          questionSets: [expect.objectContaining({ questionSetId: saved.questionSetId })],
+          answers: [expect.objectContaining({ questionSetId: saved.questionSetId, answers })],
+        });
+        // The earlier revision does not see answers given after it.
+        expect(
+          (await h.store.sessions.context(alice, session.sessionId, first.contextRevisionId))
+            ?.answers,
+        ).toEqual([]);
+      });
+
+      describe('question rounds', () => {
+        const ask = (
+          owner: string,
+          sessionId: string,
+          contextRevisionId: string,
+          key: string,
+          round: { round: number; slots: number; replaces: string | null },
+        ) =>
+          h.store.jobs.admit({
+            ownerId: owner,
+            plan: FREE,
+            pipelineReleaseId: 'v1',
+            idempotencyKey: key,
+            requestHash: `hash-${key}`,
+            request: {
+              schemaVersion: '1.0',
+              clientRequestId: key,
+              operation: 'generate_questions',
+              sessionId,
+              contextRevisionId,
+              parentJobId: null,
+              input: { analysisJobId: null, round: round.round, maxQuestions: round.slots },
+            } as unknown as CreateJobRequest,
+            now: NOW,
+            deadlineAt: DEADLINE,
+            questionRound: round,
+          });
+        const leaseOf = async (jobId: string, at = NOW) => {
+          const claim = await h.store.execution.claim(alice, jobId, at, 60_000);
+          if (claim.kind !== 'claimed') throw new Error(`not claimed: ${claim.reason}`);
+          return claim.lease;
+        };
+        const issue = (
+          sessionId: string,
+          lease: Lease,
+          round: number,
+          count: number,
+          { at = NOW, questionSetId = randomUUID() } = {},
+        ) =>
+          h.store.sessions.issueQuestionSet(
+            lease,
+            {
+              questionSetId,
+              sessionId,
+              round,
+              questions: Array.from({ length: count }, (_, i) => ({
+                id: `q${round}-${i}`,
+                topicKey: `topic-${round}-${i}`,
+                prompt: 'p',
+                guidance: null,
+                reason: 'r',
+                targetSection: null,
+                targetEntityId: null,
+                requirementIds: [],
+              })),
+              sourceHash: 'a'.repeat(64),
+              jobDescriptionHash: null,
+            },
+            at,
+          );
+
+        beforeEach(async () => {
+          await h.setLimitOverride(alice, WIDE);
+        });
+
+        it('takes rounds in order, one job each, and commits what a set issues', async () => {
+          const { session } = await create(alice, 'session-0001');
+          const ctx = session.latestContext.contextRevisionId;
+          const one = { round: 1, slots: 5, replaces: null };
+          const { job } = await ask(alice, session.sessionId, ctx, 'key-00000001', one);
+          await expect(
+            ask(alice, session.sessionId, ctx, 'key-00000002', one),
+          ).rejects.toBeInstanceOf(QuestionRoundTakenError);
+          // Round 2 waits for round 1's set.
+          await expect(
+            ask(alice, session.sessionId, ctx, 'key-00000003', { ...one, round: 2 }),
+          ).rejects.toBeInstanceOf(QuestionRoundTakenError);
+          // Another user cannot take a round of this session.
+          await expect(
+            ask(bob, session.sessionId, ctx, 'key-00000004', one),
+          ).rejects.toBeInstanceOf(QuestionRoundTakenError);
+
+          const lease = await leaseOf(job.jobId);
+          expect(await issue(session.sessionId, { ...lease, jobId: randomUUID() }, 1, 3)).toBe(
+            'stale',
+          );
+          expect(await issue(session.sessionId, lease, 1, 4)).toBe('issued');
+          expect(await h.store.sessions.get(alice, session.sessionId)).toMatchObject({
+            questionRoundsUsed: 1,
+            questionsIssued: 4,
+          });
+          // Six more would pass the ten-question session limit; five fit.
+          await expect(
+            ask(alice, session.sessionId, ctx, 'key-00000005', {
+              round: 2,
+              slots: 7,
+              replaces: null,
+            }),
+          ).rejects.toBeInstanceOf(QuestionRoundTakenError);
+          const two = await ask(alice, session.sessionId, ctx, 'key-00000006', {
+            round: 2,
+            slots: 5,
+            replaces: null,
+          });
+          expect(await issue(session.sessionId, await leaseOf(two.job.jobId), 2, 5)).toBe('issued');
+          expect(await h.store.sessions.get(alice, session.sessionId)).toMatchObject({
+            questionRoundsUsed: 2,
+            questionsIssued: 9,
+          });
+        });
+
+        it('lets a new job take a round whose job ended without a set', async () => {
+          const { session } = await create(alice, 'session-0001');
+          const ctx = session.latestContext.contextRevisionId;
+          const one = { round: 1, slots: 5, replaces: null };
+          const first = await ask(alice, session.sessionId, ctx, 'key-00000001', one);
+          const firstLease = await leaseOf(first.job.jobId);
+          // Still running: it cannot be replaced.
+          await expect(
+            ask(alice, session.sessionId, ctx, 'key-00000002', {
+              ...one,
+              replaces: first.job.jobId,
+            }),
+          ).rejects.toBeInstanceOf(QuestionRoundTakenError);
+          await h.failJob(alice, first.job.jobId);
+          await expect(
+            ask(alice, session.sessionId, ctx, 'key-00000003', one),
+          ).rejects.toBeInstanceOf(QuestionRoundTakenError);
+          const second = await ask(alice, session.sessionId, ctx, 'key-00000004', {
+            ...one,
+            replaces: first.job.jobId,
+          });
+          // The failed job can no longer issue; the new holder can.
+          expect(await issue(session.sessionId, firstLease, 1, 2)).toBe('stale');
+          expect(await issue(session.sessionId, await leaseOf(second.job.jobId), 1, 2)).toBe(
+            'issued',
+          );
+        });
+
+        it('issues only under the lease that still runs the job, before its deadline', async () => {
+          const { session } = await create(alice, 'session-0001');
+          const ctx = session.latestContext.contextRevisionId;
+          const { job } = await ask(alice, session.sessionId, ctx, 'key-00000001', {
+            round: 1,
+            slots: 5,
+            replaces: null,
+          });
+          const old = await leaseOf(job.jobId);
+          // The first worker's lease lapses and another worker reclaims the job.
+          const current = await leaseOf(job.jobId, new Date(NOW.getTime() + 61_000));
+          expect(await issue(session.sessionId, old, 1, 2)).toBe('stale');
+          expect(
+            await issue(session.sessionId, current, 1, 2, {
+              at: new Date(DEADLINE.getTime() + 1_000),
+            }),
+          ).toBe('stale');
+          expect(await h.store.sessions.get(alice, session.sessionId)).toMatchObject({
+            questionRoundsUsed: 0,
+            questionsIssued: 0,
+          });
+          const questionSetId = randomUUID();
+          expect(await issue(session.sessionId, current, 1, 2, { questionSetId })).toBe('issued');
+          // A repeat after a lost response is answered as issued and commits nothing more.
+          expect(await issue(session.sessionId, current, 1, 2, { questionSetId })).toBe('issued');
+          expect(await h.store.sessions.get(alice, session.sessionId)).toMatchObject({
+            questionRoundsUsed: 1,
+            questionsIssued: 2,
+          });
+        });
+
+        it('replays a repeated request instead of reporting its own round as taken', async () => {
+          const { session } = await create(alice, 'session-0001');
+          const ctx = session.latestContext.contextRevisionId;
+          const one = { round: 1, slots: 5, replaces: null };
+          // Concurrent, so the loser can fail inside the admission transaction, not only on read.
+          const results = await Promise.all(
+            Array.from({ length: 4 }, () =>
+              ask(alice, session.sessionId, ctx, 'key-00000001', one),
+            ),
+          );
+          expect(new Set(results.map((r) => r.job.jobId)).size).toBe(1);
+          expect(results.filter((r) => !r.replayed)).toHaveLength(1);
+        });
+      });
+
       it('deletes the session and what hangs off it', async () => {
         const { session } = await create(alice, 'session-0001');
         const set = {
@@ -917,6 +1167,7 @@ export function describeStoreContract(name: string, make: MakeHarness) {
           questions: [],
           sourceHash: 'a'.repeat(64),
           jobDescriptionHash: null,
+          jobId: null,
         };
         await h.store.sessions.saveQuestionSet(alice, set, NOW);
         expect(await h.store.sessions.delete(alice, session.sessionId)).toBe(true);

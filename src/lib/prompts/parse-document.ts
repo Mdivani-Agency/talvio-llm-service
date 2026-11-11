@@ -2,6 +2,8 @@ import { createHash } from 'crypto';
 
 import { z } from 'zod';
 
+import { repairNote, type PromptPack } from '../model/pack';
+
 import {
   degreeTypeEnum,
   employmentTypeEnum,
@@ -122,10 +124,7 @@ export function userMessage(text: string): string {
 }
 
 /** Note sent with a single repair attempt: paths and generic messages only, never content. */
-export function repairMessage(issues: { path: string; message: string }[]): string {
-  const lines = issues.slice(0, 20).map((issue) => `- ${issue.path || '(root)'}: ${issue.message}`);
-  return `The tool input did not match the schema:\n${lines.join('\n')}\nCall ${TOOL_NAME} again with the complete, corrected input.`;
-}
+export const repairMessage = repairNote(TOOL_NAME);
 
 /** Bytes the request sends besides the resume text: system, tool schema, wrapper. */
 export const FIXED_REQUEST_BYTES =
@@ -134,3 +133,17 @@ export const FIXED_REQUEST_BYTES =
   Buffer.byteLength(TOOL_DESCRIPTION) +
   Buffer.byteLength(TOOL_NAME) +
   Buffer.byteLength(userMessage(''));
+
+/** The pack the worker runs. */
+export const PARSE_PACK: PromptPack<ModelOutput> = {
+  modelId: PARSE_MODEL_ID,
+  promptVersion: PROMPT_VERSION,
+  system: SYSTEM_PROMPT,
+  toolName: TOOL_NAME,
+  toolDescription: TOOL_DESCRIPTION,
+  toolSchema: TOOL_SCHEMA,
+  output: modelOutputSchema,
+  outputTokens: OUTPUT_TOKENS,
+  timeoutMs: MODEL_TIMEOUT_MS,
+  repairMessage,
+};
