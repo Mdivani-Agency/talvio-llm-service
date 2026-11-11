@@ -26,7 +26,7 @@ import {
   modelCostMicroUsd,
   UnpricedModelError,
 } from '../lib/model/pricing';
-import type { PromptPack } from '../lib/model/pack';
+import { fixedBytes, type PromptPack } from '../lib/model/pack';
 import type { JobStage } from '../lib/store';
 import { TransientError, type StepContext, type StepOutcome } from './run';
 
@@ -52,13 +52,6 @@ export class Stop extends Error {
 }
 
 const GUARDRAIL_TIMEOUT_MS = 20_000;
-
-/** Bytes a request sends besides the user text: system, tool schema and name. */
-export const fixedBytes = (pack: PromptPack<unknown>) =>
-  Buffer.byteLength(pack.system) +
-  Buffer.byteLength(JSON.stringify(pack.toolSchema)) +
-  Buffer.byteLength(pack.toolDescription) +
-  Buffer.byteLength(pack.toolName);
 
 export type PaidJob = ReturnType<typeof paidJob>;
 

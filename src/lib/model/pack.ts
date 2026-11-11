@@ -46,3 +46,10 @@ export function fenced(label: string, text: string): { marker: string; block: st
   const marker = `${label}-${createHash('sha256').update(text).digest('hex').slice(0, 16)}`;
   return { marker, block: `${marker}\n${text}\n${marker}` };
 }
+
+/** Bytes a request sends besides the user text: system, tool schema and name. */
+export const fixedBytes = (pack: PromptPack<unknown>) =>
+  Buffer.byteLength(pack.system) +
+  Buffer.byteLength(JSON.stringify(pack.toolSchema)) +
+  Buffer.byteLength(pack.toolDescription) +
+  Buffer.byteLength(pack.toolName);
