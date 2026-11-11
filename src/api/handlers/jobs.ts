@@ -10,7 +10,7 @@ import {
 
 import { ApiError, notFound } from '@lib/errors';
 import { contentHash } from '@lib/hash';
-import { QuotaExceededError, resolveLimits } from '@lib/limits';
+import { QuotaExceededError } from '@lib/limits';
 import { maxUtf8Bytes, parseFits } from '@lib/model/preflight';
 import { IdempotencyConflictError, InvalidCursorError, type JobRecord } from '@lib/store';
 import { parseWith } from '@lib/validation';
@@ -167,7 +167,9 @@ export const createJob: RouteHandler = async (request, deps) => {
   }
 
   await checkReferences(deps, ownerId, body);
-  await checkAffordable(deps, ownerId, body, resolveLimits(planOf(request)).jobBudgetMicroUsd);
+  // The same limits admission reserves with (configured plan limits and the owner's override).
+  const limits = await deps.store.jobs.limitsFor(ownerId, planOf(request));
+  await checkAffordable(deps, ownerId, body, limits.jobBudgetMicroUsd);
 
   try {
     const { job, replayed, event } = await deps.store.jobs.admit({

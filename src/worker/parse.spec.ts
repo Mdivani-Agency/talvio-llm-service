@@ -249,6 +249,9 @@ describe('parse_document executor', () => {
     expect(envelope.warnings).toContainEqual(
       expect.objectContaining({ code: 'docx_images_not_read' }),
     );
+    // Images were left out, so the result does not claim to be complete.
+    expect(envelope.resultKind).toBe('partial');
+    expect(envelope.result.extraction.complete).toBe(false);
     expect(envelope.result.facts[0]?.evidence[0]?.clientSupplied).toBe(false);
 
     await admit({ kind: 'document', documentId: created.documentId });

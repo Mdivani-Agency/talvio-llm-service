@@ -9,6 +9,10 @@ export type Span = { start: number; end: number };
 
 const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const LETTER = /\p{L}/u;
+/** Occurrences compared by `findNear`; a resume repeating a value more often is not plausible. */
+const MAX_OCCURRENCES = 50;
+
 export class SourceText {
   private readonly lower: string;
 
@@ -29,6 +33,34 @@ export class SourceText {
     if (words.length < 2) return null;
     const pattern = new RegExp(words.join('\\s+'), 'gi');
     return this.regexAfter(pattern, from);
+  }
+
+  /**
+   * The occurrence of `needle` closest to `near` (fewest lines apart, then fewest characters), so
+   * a job title is read beside its company and not from a headline that repeats it. Null when
+   * there is none.
+   */
+  findNear(needle: string, near: Span): Span | null {
+    // Lines apart first, then characters: the same line beats a closer line above.
+    const distance = (span: Span) => {
+      const [a, b] = span.end <= near.start ? [span.end, near.start] : [near.end, span.start];
+      if (b <= a) return [0, 0] as const;
+      const gap = this.text.slice(a, b);
+      return [gap.split('\n').length - 1, gap.length] as const;
+    };
+    const closer = (x: Span, y: Span) => {
+      const [dx, dy] = [distance(x), distance(y)];
+      return dx[0] !== dy[0] ? dx[0] < dy[0] : dx[1] < dy[1];
+    };
+    let best = this.find(needle, 0);
+    if (!best) return null;
+    for (let n = 0, from = best.start + 1; n < MAX_OCCURRENCES; n += 1) {
+      const next = this.find(needle, from);
+      if (!next || next.start < from) break;
+      if (closer(next, best)) best = next;
+      from = next.start + 1;
+    }
+    return best;
   }
 
   slice(span: Span): string {
@@ -53,7 +85,12 @@ export class SourceText {
   }
 }
 
-/** Characters of `text` not inside any span, as lines worth reporting (long enough to be content). */
+/**
+ * Lines of `text` holding at least `minLetters` letters that are inside no span. Counting the
+ * uncovered letters, not whether the line is touched at all, means a line whose company was quoted
+ * but whose sentence was dropped is still reported.
+ */
+
 export function uncoveredLines(text: string, spans: Span[], minLetters = 25): Span[] {
   const covered = new Uint8Array(text.length);
   for (const span of spans) covered.fill(1, span.start, span.end);
@@ -61,9 +98,11 @@ export function uncoveredLines(text: string, spans: Span[], minLetters = 25): Sp
   let start = 0;
   for (let i = 0; i <= text.length; i += 1) {
     if (i === text.length || text[i] === '\n') {
-      const line = text.slice(start, i);
-      const letters = line.replace(/[^\p{L}]/gu, '').length;
-      if (letters >= minLetters && !covered.subarray(start, i).some((c) => c === 1)) {
+      let letters = 0;
+      for (let j = start; j < i; j += 1) {
+        if (!covered[j] && LETTER.test(text[j]!)) letters += 1;
+      }
+      if (letters >= minLetters) {
         lines.push({ start, end: i });
       }
       start = i + 1;

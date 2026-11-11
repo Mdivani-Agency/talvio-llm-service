@@ -178,10 +178,17 @@ export function normalizeParse(output: ModelOutput, text: string, meta: SourceMe
   /** Finds a quoted value in the source; null (and an uncertainty) when it is not there or too long. */
   const ground = (
     value: string | null,
-    at: { section: Section; entityId: string | null; field: string; max: number; from?: number },
+    at: {
+      section: Section;
+      entityId: string | null;
+      field: string;
+      max: number;
+      from?: number;
+      near?: Span;
+    },
   ): { text: string; span: Span } | null => {
     if (value === null || value.trim() === '') return null;
-    const span = source.find(value, at.from ?? 0);
+    const span = at.near ? source.findNear(value, at.near) : source.find(value, at.from ?? 0);
     if (!span) {
       uncertain(
         at.section,
@@ -371,7 +378,7 @@ export function normalizeParse(output: ModelOutput, text: string, meta: SourceMe
         from: anchor,
       });
       const company = ground(entry.company, at('company'));
-      const jobTitle = ground(entry.jobTitle, at('jobTitle'));
+      const jobTitle = ground(entry.jobTitle, { ...at('jobTitle'), near: company?.span });
       const found = [company?.span, jobTitle?.span].filter((span): span is Span => !!span);
       const next = regionOf(found);
       if (next) anchor = next.start;
@@ -441,7 +448,7 @@ export function normalizeParse(output: ModelOutput, text: string, meta: SourceMe
         from: anchor,
       });
       const name = ground(entry.institution, at('name'));
-      const degree = ground(entry.degree, at('degreeType'));
+      const degree = ground(entry.degree, { ...at('degreeType'), near: name?.span });
       const next = regionOf([name?.span, degree?.span].filter((span): span is Span => !!span));
       if (next) anchor = next.start;
       if (name) fact('institution', 'education', id, 'name', name.text, name.span);

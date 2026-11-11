@@ -11,7 +11,7 @@ import { describeStoreContract } from '../store.contract';
 import { createDb, epochSeconds, utcDay, type Db, type Tables } from './db';
 import { createDynamoStore } from './index';
 import { createDynamoJobStore } from './jobs';
-import { limitsKey, releaseQuota } from './quota';
+import { limitsKey, settleQuota } from './quota';
 import { transact } from './db';
 
 /*
@@ -108,7 +108,7 @@ suite('DynamoDB', () => {
               ExpressionAttributeValues: { ':failed': 'failed', ':done': 'done', ':zero': 0 },
             },
           },
-          ...releaseQuota(db, ownerId, job, utcDay(job.createdAt)),
+          ...settleQuota(db, ownerId, job, job.spendCommittedMicroUsd, utcDay(job.createdAt)),
         ]);
         await db.client.send(
           new UpdateCommand({

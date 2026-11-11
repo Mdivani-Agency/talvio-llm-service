@@ -110,43 +110,6 @@ export function takeQuota(db: Db, ownerId: string, take: Take): TransactItem[] {
   ];
 }
 
-/** Returns the held slot and unspent reservation of a job that leaves a non-terminal state. */
-export function releaseQuota(
-  db: Db,
-  ownerId: string,
-  job: { createdAt: Date; spendReservedMicroUsd: number },
-  day: string,
-): TransactItem[] {
-  const expires = bucketExpiry(day);
-  const release = (key: { pk: string; sk: string }): TransactItem => ({
-    Update: {
-      TableName: db.tables.quotas,
-      Key: key,
-      UpdateExpression: 'ADD #reserved :neg, #used :neg SET #exp = if_not_exists(#exp, :exp)',
-      ExpressionAttributeNames: {
-        '#reserved': 'reservedMicro',
-        '#used': 'usedMicro',
-        '#exp': 'expiresAt',
-      },
-      ExpressionAttributeValues: { ':neg': -job.spendReservedMicroUsd, ':exp': expires },
-    },
-  });
-  return [
-    {
-      Update: {
-        TableName: db.tables.quotas,
-        Key: activeKey(ownerId),
-        UpdateExpression: 'ADD #active :neg',
-        ExpressionAttributeNames: { '#active': 'active' },
-        ExpressionAttributeValues: { ':neg': -1 },
-      },
-    },
-    ...(job.spendReservedMicroUsd > 0
-      ? [release(dayKey(ownerId, day)), release(accountKey(day))]
-      : []),
-  ];
-}
-
 /**
  * Refusals that need no round trip: a limit lower than one more job can never be satisfied, and
  * the conditions above would let a counter that does not exist yet through.
@@ -160,8 +123,9 @@ export function preflight(take: Take): QuotaFailure | null {
 }
 
 /**
- * Ends a held job's hold when it finishes: frees the active slot, gives back what was reserved and
- * keeps what was actually spent (`committedTotal`, the job's whole committed spend after this).
+ * Ends a held job's hold, however it ends (finished, expired, cancelled or deleted): frees the
+ * active slot, gives back what was reserved and keeps what was actually spent (`committedTotal`,
+ * the job's whole committed spend after this; see `committedSpend`).
  */
 export function settleQuota(
   db: Db,

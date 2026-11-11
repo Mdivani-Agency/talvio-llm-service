@@ -63,36 +63,4 @@ export function planCall(
   return { maxTokens, boundMicroUsd: input + outputCost(maxTokens) };
 }
 
-/*
- * The job's spend ledger lives in its checkpoints, written under the lease before and after each
- * paid call, so a crash or a duplicate delivery sees every call that may have been charged. An
- * entry is `<bound>` while the call's outcome is unknown and `<bound>:<actual>` once settled; an
- * unsettled entry counts at its bound. Only the lease holder writes it, and the lease's fence
- * guards every write, so two workers can never both spend against the same remaining budget.
- */
-
-const PREFIX = 'spend.';
-
-export type Ledger = Record<string, Record<string, string>>;
-
-export function spentMicroUsd(checkpoints: Ledger): number {
-  let total = 0;
-  for (const refs of Object.values(checkpoints)) {
-    for (const [key, value] of Object.entries(refs)) {
-      if (!/^spend\.\d+$/.test(key)) continue;
-      const [bound, actual] = value.split(':').map(Number);
-      total += Number.isFinite(actual) ? actual! : (bound ?? 0);
-    }
-  }
-  return total;
-}
-
-/** Next unused entry key in a step's refs. */
-export function nextEntry(refs: Record<string, string>): string {
-  let n = 1;
-  while (`${PREFIX}${n}` in refs) n += 1;
-  return `${PREFIX}${n}`;
-}
-
-export const reserved = (bound: number) => String(bound);
-export const settled = (bound: number, actual: number) => `${bound}:${actual}`;
+export { spentMicroUsd, nextEntry, reserved, settled, type Ledger } from '../ledger';

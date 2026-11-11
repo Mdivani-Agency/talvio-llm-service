@@ -85,6 +85,19 @@ describe('POST /v1/jobs', () => {
     expect(await app.store.jobs.findByIdempotencyKey(USER_A, 'parse-00000020')).toBeNull();
   });
 
+  it('checks affordability against the owner’s override, not only the plan', async () => {
+    // A lowered job cap fits no parse call, so the same short text is refused at preflight.
+    app.store.testing.setLimitOverride(USER_A, { jobCapMicroUsd: 1_000 });
+    const response = await post(parseRequest('parse-00000021'), tokenA, 'parse-00000021');
+    expect(response.statusCode).toBe(422);
+    expect(json(response.body)?.error.code).toBe('budget_exceeded_preflight');
+    expect(await app.store.jobs.findByIdempotencyKey(USER_A, 'parse-00000021')).toBeNull();
+    // Other owners keep the plan's cap.
+    expect((await post(parseRequest('parse-00000021'), tokenB, 'parse-00000021')).statusCode).toBe(
+      202,
+    );
+  });
+
   it('queues the work at once, and only once for a replay', async () => {
     await post(parseRequest('parse-00000010'), tokenA, 'parse-00000010');
     await post(parseRequest('parse-00000010'), tokenA, 'parse-00000010');

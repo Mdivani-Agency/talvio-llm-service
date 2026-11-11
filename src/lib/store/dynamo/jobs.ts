@@ -13,7 +13,6 @@ import {
   limitOverrideSchema,
   resolveLimits,
   type LimitOverride,
-  type ResolvedLimits,
   type UserLimits,
 } from '../../limits';
 import type { Plan } from '../../plans';
@@ -47,7 +46,8 @@ import {
 } from './job-items';
 import { eventItem } from './outbox';
 import { sweepDelete, sweepPut } from './sweep';
-import { failedAt, limitsKey, preflight, quotaFailure, releaseQuota, takeQuota } from './quota';
+import { failedAt, limitsKey, preflight, quotaFailure, settleQuota, takeQuota } from './quota';
+import { committedSpend } from '../../ledger';
 
 /** Compare-and-set attempts for cancel, retry and delete when a worker changes the job meanwhile. */
 const ATTEMPTS = 3;
@@ -65,8 +65,6 @@ export type DynamoJobStoreOptions = {
 export type DynamoJobStore = JobStore & {
   /** Publishes the result payload; it expires after the content retention period. Used by the worker (MDI-215). */
   putResult(ownerId: string, jobId: string, result: unknown, now: Date): Promise<void>;
-  /** The user's limits as admission would resolve them now. */
-  limitsFor(ownerId: string, plan: Plan): Promise<ResolvedLimits>;
 };
 
 export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}): DynamoJobStore {
@@ -358,7 +356,7 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
               TableName: tables.jobs,
               Key: jobKey(ownerId, jobId),
               UpdateExpression:
-                'SET #status = :cancelled, #stage = :done, updatedAt = :now, spendReservedMicroUsd = :zero',
+                'SET #status = :cancelled, #stage = :done, updatedAt = :now, spendReservedMicroUsd = :zero, spendCommittedMicroUsd = :committed',
               ConditionExpression: '#status = :seen',
               ExpressionAttributeNames: { '#status': 'status', '#stage': 'stage' },
               ExpressionAttributeValues: {
@@ -367,10 +365,11 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
                 ':seen': job.status,
                 ':now': now.toISOString(),
                 ':zero': 0,
+                ':committed': committedSpend(job),
               },
             },
           },
-          ...releaseQuota(db, ownerId, job, utcDay(job.createdAt)),
+          ...settleQuota(db, ownerId, job, committedSpend(job), utcDay(job.createdAt)),
           sweepDelete(db, ownerId, jobId),
         ]);
         return load(ownerId, jobId, now);
@@ -474,7 +473,9 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
           { Delete: { TableName: tables.jobs, Key: idemKey(ownerId, job.idempotencyKey) } },
           { Delete: { TableName: tables.jobs, Key: resultKey(ownerId, jobId) } },
           { Delete: { TableName: tables.jobs, Key: inputKey(ownerId, jobId) } },
-          ...(held(job) ? releaseQuota(db, ownerId, job, utcDay(job.createdAt)) : []),
+          ...(held(job)
+            ? settleQuota(db, ownerId, job, committedSpend(job), utcDay(job.createdAt))
+            : []),
           sweepDelete(db, ownerId, jobId),
         ]);
         return true;

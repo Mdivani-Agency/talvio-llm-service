@@ -4,6 +4,7 @@ import { LIMITS, TERMINAL_JOB_STATUSES } from '@talvio/llm-contracts';
 import type { CreateJobRequest } from '@talvio/llm-contracts';
 
 import { DISPATCH_GRACE_MS, MAX_STEP_ATTEMPTS, abandonable } from '../execution';
+import { committedSpend } from '../ledger';
 import { answeredContext, firstContext } from './context';
 import {
   DEFAULT_ACCOUNT_DAILY_CEILING_MICRO_USD,
@@ -62,6 +63,8 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
   const documents = new Map<string, DocumentRecord>();
   const sessions = new Map<string, SessionRecord>();
   const questionSets = new Map<string, QuestionSetRecord>();
+  /** Deleted jobs still count toward their day, as the DynamoDB counters keep them. */
+  const deleted: { ownerId: string; day: string; spent: number }[] = [];
 
   const utcDay = (date: Date) => date.toISOString().slice(0, 10);
   const held = (job: JobRecord) => !TERMINAL_JOB_STATUSES.includes(job.status);
@@ -69,18 +72,22 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
   /** Counts the owner's jobs the way the DynamoDB counters do: per UTC admission day and active. */
   const usage = (ownerId: string, day: string) => {
     const mine = [...jobs.values()].filter((job) => job.ownerId === ownerId);
+    const gone = deleted.filter((d) => d.ownerId === ownerId && d.day === day);
     return {
-      jobs: mine.filter((job) => utcDay(job.createdAt) === day).length,
+      jobs: mine.filter((job) => utcDay(job.createdAt) === day).length + gone.length,
       active: mine.filter(held).length,
-      used: mine
-        .filter((job) => utcDay(job.createdAt) === day)
-        .reduce((sum, job) => sum + job.spendReservedMicroUsd + job.spendCommittedMicroUsd, 0),
+      used:
+        mine
+          .filter((job) => utcDay(job.createdAt) === day)
+          .reduce((sum, job) => sum + job.spendReservedMicroUsd + job.spendCommittedMicroUsd, 0) +
+        gone.reduce((sum, d) => sum + d.spent, 0),
     };
   };
   const accountUsed = (day: string) =>
     [...jobs.values()]
       .filter((job) => utcDay(job.createdAt) === day)
-      .reduce((sum, job) => sum + job.spendReservedMicroUsd + job.spendCommittedMicroUsd, 0);
+      .reduce((sum, job) => sum + job.spendReservedMicroUsd + job.spendCommittedMicroUsd, 0) +
+    deleted.filter((d) => d.day === day).reduce((sum, d) => sum + d.spent, 0);
 
   /** Throws when taking one more slot and `reserve` more spend would cross a limit. */
   const limitsFor = (ownerId: string, plan: JobRecord['plan']) =>
@@ -156,14 +163,17 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
     status: JobRecord['status'],
     now: Date,
     fields: Partial<JobRecord>,
-    committed = job.spendCommittedMicroUsd,
+    committed = 0,
   ) => {
     Object.assign(job, fields, {
       status,
       stage: 'done',
       updatedAt: now,
       spendReservedMicroUsd: 0,
-      spendCommittedMicroUsd: Math.min(committed, job.budgetCapMicroUsd),
+      spendCommittedMicroUsd: Math.min(
+        Math.max(committed, committedSpend(job)),
+        job.budgetCapMicroUsd,
+      ),
     });
     job.exec.fence += 1;
     job.exec.leaseExpiresAt = null;
@@ -190,6 +200,9 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
 
   return {
     jobs: {
+      async limitsFor(ownerId, plan) {
+        return limitsFor(ownerId, plan);
+      },
       async findByIdempotencyKey(ownerId, idempotencyKey) {
         return findByKey(ownerId, idempotencyKey);
       },
@@ -301,7 +314,9 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
       },
       async delete(ownerId, jobId) {
         checks.delete(jobId);
-        if (!owned(jobs.get(jobId), ownerId)) return false;
+        const job = owned(jobs.get(jobId), ownerId);
+        if (!job) return false;
+        deleted.push({ ownerId, day: utcDay(job.createdAt), spent: committedSpend(job) });
         inputs.delete(jobId);
         return jobs.delete(jobId);
       },

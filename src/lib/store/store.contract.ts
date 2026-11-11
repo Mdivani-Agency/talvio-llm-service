@@ -597,6 +597,52 @@ export function describeStoreContract(name: string, make: MakeHarness) {
         expect((await claimed(alice, job.jobId, later(1_000))).lease.fence).toBe(3);
       });
 
+      describe('keeps spend from the ledger on every way a job ends', () => {
+        // Each job reserves its 50_000 cap; the limit fits two reservations. A job that ends after
+        // a 30_000 call must keep the 30_000, so two more reservations no longer fit.
+        const paid = async () => {
+          await h.setLimitOverride(alice, { ...WIDE, dailySpendMicroUsd: 100_000 });
+          const { job } = await admit(alice, 'key-00000001');
+          const { lease } = await claimed(alice, job.jobId);
+          await h.store.execution.checkpoint(lease, 'inference', { 'spend.1': '30000:30000' }, NOW);
+          return { job, lease };
+        };
+        const kept = async (jobId: string) => {
+          expect(await h.store.jobs.get(alice, jobId)).toMatchObject({
+            spendReservedMicroUsd: 0,
+            spendCommittedMicroUsd: 30_000,
+          });
+          await admit(alice, 'key-00000002');
+          await expect(admit(alice, 'key-00000003')).rejects.toMatchObject({ kind: 'daily_spend' });
+        };
+
+        it('on cancel', async () => {
+          const { job } = await paid();
+          await h.store.jobs.cancel(alice, job.jobId, NOW);
+          await kept(job.jobId);
+        });
+
+        it('on expiry', async () => {
+          const { job } = await paid();
+          await h.store.execution.claim(alice, job.jobId, later(11 * 60_000), LEASE_MS);
+          await kept(job.jobId);
+        });
+
+        it('on a failure that reports no spend', async () => {
+          const { job, lease } = await paid();
+          const error = expiredError(job.jobId, 'internal_error');
+          await h.store.execution.fail(lease, error, { spendCommittedMicroUsd: 0 }, NOW);
+          await kept(job.jobId);
+        });
+
+        it('on delete', async () => {
+          const { job } = await paid();
+          await h.store.jobs.delete(alice, job.jobId);
+          await admit(alice, 'key-00000002');
+          await expect(admit(alice, 'key-00000003')).rejects.toMatchObject({ kind: 'daily_spend' });
+        });
+      });
+
       it('expires a job claimed after its deadline and frees its slot', async () => {
         const a = await admit(alice, 'key-00000001');
         await admit(alice, 'key-00000002');

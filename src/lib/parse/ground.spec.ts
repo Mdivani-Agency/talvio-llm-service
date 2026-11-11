@@ -9,6 +9,16 @@ describe('SourceText', () => {
     expect(source.slice(source.find('Senior Engineer')!)).toBe('Senior Engineer');
   });
 
+  it('finds the occurrence closest to a span, before or after it', () => {
+    const text = 'Senior Engineer\n\nAcme — Senior Engineer\n\nGlobex\nSenior Engineer';
+    const near = new SourceText(text);
+    const acme = { start: text.indexOf('Acme'), end: text.indexOf('Acme') + 4 };
+    expect(near.findNear('Senior Engineer', acme)?.start).toBe(text.indexOf('Senior', 18));
+    const globex = { start: text.indexOf('Globex'), end: text.indexOf('Globex') + 6 };
+    expect(near.findNear('senior engineer', globex)?.start).toBe(text.lastIndexOf('Senior'));
+    expect(near.findNear('Lead', acme)).toBeNull();
+  });
+
   it('prefers the occurrence after a position', () => {
     expect(source.find('Senior Engineer', 30)?.start).toBe(35);
   });
@@ -29,6 +39,16 @@ describe('uncoveredLines', () => {
     const lines = uncoveredLines(text, [covered]);
     expect(lines.map((line) => text.slice(line.start, line.end))).toEqual([
       'Built the billing platform for 40 teams',
+    ]);
+  });
+
+  it('lists a partly quoted line when what was left out is content', () => {
+    const text = 'Acme Corp — rebuilt the billing platform used by forty teams\nAcme Corp — Lead';
+    const company = { start: 0, end: 9 };
+    const second = { start: text.lastIndexOf('Acme'), end: text.length };
+    const lines = uncoveredLines(text, [company, second]);
+    expect(lines.map((line) => text.slice(line.start, line.end))).toEqual([
+      'Acme Corp — rebuilt the billing platform used by forty teams',
     ]);
   });
 });

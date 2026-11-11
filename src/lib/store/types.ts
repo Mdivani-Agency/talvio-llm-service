@@ -13,6 +13,7 @@ import type {
 } from '@talvio/llm-contracts';
 
 import type { Plan } from '../plans';
+import type { ResolvedLimits } from '../limits';
 
 /*
  * Persistence boundary of the API. Every read and write is scoped by `ownerId`: a record owned
@@ -134,6 +135,8 @@ export interface JobStore {
   retry(ownerId: string, jobId: string, now: Date): Promise<JobRecord | null>;
   /** Removes the job, its result and its idempotency record, releasing a held slot and reservation. */
   delete(ownerId: string, jobId: string): Promise<boolean>;
+  /** The owner's limits as admission resolves them now: plan, configured plan limits and override. */
+  limitsFor(ownerId: string, plan: Plan): Promise<ResolvedLimits>;
 }
 
 export type OutboxEventType =

@@ -92,6 +92,16 @@ const failed = (code: JobError['code']): never => {
   throw new Stop({ kind: 'failed', code });
 };
 
+/**
+ * Extraction warnings that mean some of the document's content never reached the text, so the
+ * result cannot be complete. `docx_text_boxes_inline` is not one: that text was read.
+ */
+const OMISSION_WARNINGS = new Set([
+  'ocr_pages_missing',
+  'docx_images_not_read',
+  'docx_embedded_objects_not_read',
+]);
+
 async function loadSource(
   deps: ParseDeps,
   ownerId: string,
@@ -140,7 +150,7 @@ async function loadSource(
   if (typeof text !== 'string' || sha256Hex(Buffer.from(text, 'utf8')) !== artifact.sha256) {
     return failed('unusable_document');
   }
-  const missing = document.warnings.some((warning) => warning.code === 'ocr_pages_missing');
+  const missing = document.warnings.some((warning) => OMISSION_WARNINGS.has(warning.code));
   return {
     text,
     meta: { sourceHash: artifact.sha256, clientSupplied: false, pages: [] },
