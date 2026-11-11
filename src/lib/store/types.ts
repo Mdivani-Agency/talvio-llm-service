@@ -442,12 +442,13 @@ export interface SessionStore {
     contextRevisionId: string,
   ): Promise<SessionContext | null>;
   /**
-   * Publishes a generate_questions set: stores it and commits its round and question count, if
-   * `set.jobId` still holds the round. 'issued' again for a set already issued by that job.
+   * Publishes a generate_questions set: stores it and commits its round and question count, if the
+   * lease's job still holds the round and the lease is still the job's (running, same fence, before
+   * its deadline). 'issued' again for a set already issued by that job.
    */
   issueQuestionSet(
-    ownerId: string,
-    set: QuestionSetRecord & { jobId: string },
+    lease: Lease,
+    set: Omit<QuestionSetRecord, 'jobId'>,
     now: Date,
   ): Promise<'issued' | 'stale'>;
   /** Records an answer revision and returns the new latest context, or 'stale'. */

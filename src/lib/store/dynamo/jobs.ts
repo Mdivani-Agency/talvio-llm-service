@@ -324,15 +324,17 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
       roundAt = items.length;
       await transact([...items, ...roundItems]);
     } catch (error) {
-      if (roundItems.some((_, i) => failedAt(error, roundAt + i))) {
-        throw new QuestionRoundTakenError();
-      }
+      // A retry of an admitted request also fails the round items (its own job holds the round),
+      // so the idempotency winner is answered first.
       if (failedAt(error, 1)) {
         // Another request with this key won the race: answer it as a replay.
         const winner = await findByIdempotencyKey(ownerId, idempotencyKey);
         if (winner) {
           return replayOrConflict(winner, requestHash);
         }
+      }
+      if (roundItems.some((_, i) => failedAt(error, roundAt + i))) {
+        throw new QuestionRoundTakenError();
       }
       const kind = quotaFailure(error, 2, take);
       if (kind) {

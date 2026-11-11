@@ -20,6 +20,7 @@ import {
   type SessionStore,
 } from '../types';
 import { epochSeconds, fromEpochSeconds, isExpired, transact, userKey, type Db } from './db';
+import { jobKey } from './job-items';
 import { failedAt } from './quota';
 
 const sessionKey = (ownerId: string, sessionId: string) => ({
@@ -429,7 +430,8 @@ export function createDynamoSessionStore(db: Db): SessionStore {
       };
     },
 
-    async issueQuestionSet(ownerId, set, now) {
+    async issueQuestionSet(lease, set, now) {
+      const { ownerId, jobId } = lease;
       const session = await get(ownerId, set.sessionId);
       if (!session) return 'stale';
       const key = questionSetKey(ownerId, set.sessionId, set.questionSetId);
@@ -438,7 +440,7 @@ export function createDynamoSessionStore(db: Db): SessionStore {
           {
             Put: {
               TableName: tables.sessions,
-              Item: { ...key, ...set, expiresAt: epochSeconds(session.expiresAt) },
+              Item: { ...key, ...set, jobId, expiresAt: epochSeconds(session.expiresAt) },
               ConditionExpression: 'attribute_not_exists(pk)',
             },
           },
@@ -454,18 +456,34 @@ export function createDynamoSessionStore(db: Db): SessionStore {
                 ':round': set.round,
                 ':previous': set.round - 1,
                 ':count': set.questions.length,
-                ':job': set.jobId,
+                ':job': jobId,
                 ':now': epochSeconds(now),
+              },
+            },
+          },
+          {
+            // Only the worker that still holds the job may issue: a cancelled, expired or
+            // reclaimed job must not spend the round.
+            ConditionCheck: {
+              TableName: tables.jobs,
+              Key: jobKey(ownerId, jobId),
+              ConditionExpression:
+                '#status = :running AND #exec.#fence = :fence AND deadlineAt > :deadline',
+              ExpressionAttributeNames: { '#status': 'status', '#exec': 'exec', '#fence': 'fence' },
+              ExpressionAttributeValues: {
+                ':running': 'running',
+                ':fence': lease.fence,
+                ':deadline': now.toISOString(),
               },
             },
           },
         ]);
         return 'issued';
       } catch (error) {
-        if (failedAt(error, 0) || failedAt(error, 1)) {
+        if ([0, 1, 2].some((index) => failedAt(error, index))) {
           // Already issued by this job (a repeat after a lost response) counts as issued.
           const issued = await child<Record<string, unknown>>(key);
-          return issued?.jobId === set.jobId ? 'issued' : 'stale';
+          return issued?.jobId === jobId ? 'issued' : 'stale';
         }
         throw error;
       }

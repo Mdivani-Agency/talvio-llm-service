@@ -9,6 +9,7 @@ import {
   InvalidCursorError,
   QuestionRoundTakenError,
   type ContextInput,
+  type Lease,
   type Store,
 } from './types';
 
@@ -999,11 +1000,22 @@ export function describeStoreContract(name: string, make: MakeHarness) {
             deadlineAt: DEADLINE,
             questionRound: round,
           });
-        const issue = (sessionId: string, jobId: string, round: number, count: number) =>
+        const leaseOf = async (jobId: string, at = NOW) => {
+          const claim = await h.store.execution.claim(alice, jobId, at, 60_000);
+          if (claim.kind !== 'claimed') throw new Error(`not claimed: ${claim.reason}`);
+          return claim.lease;
+        };
+        const issue = (
+          sessionId: string,
+          lease: Lease,
+          round: number,
+          count: number,
+          { at = NOW, questionSetId = randomUUID() } = {},
+        ) =>
           h.store.sessions.issueQuestionSet(
-            alice,
+            lease,
             {
-              questionSetId: randomUUID(),
+              questionSetId,
               sessionId,
               round,
               questions: Array.from({ length: count }, (_, i) => ({
@@ -1018,9 +1030,8 @@ export function describeStoreContract(name: string, make: MakeHarness) {
               })),
               sourceHash: 'a'.repeat(64),
               jobDescriptionHash: null,
-              jobId,
             },
-            NOW,
+            at,
           );
 
         beforeEach(async () => {
@@ -1044,8 +1055,11 @@ export function describeStoreContract(name: string, make: MakeHarness) {
             ask(bob, session.sessionId, ctx, 'key-00000004', one),
           ).rejects.toBeInstanceOf(QuestionRoundTakenError);
 
-          expect(await issue(session.sessionId, randomUUID(), 1, 3)).toBe('stale');
-          expect(await issue(session.sessionId, job.jobId, 1, 4)).toBe('issued');
+          const lease = await leaseOf(job.jobId);
+          expect(await issue(session.sessionId, { ...lease, jobId: randomUUID() }, 1, 3)).toBe(
+            'stale',
+          );
+          expect(await issue(session.sessionId, lease, 1, 4)).toBe('issued');
           expect(await h.store.sessions.get(alice, session.sessionId)).toMatchObject({
             questionRoundsUsed: 1,
             questionsIssued: 4,
@@ -1063,7 +1077,7 @@ export function describeStoreContract(name: string, make: MakeHarness) {
             slots: 5,
             replaces: null,
           });
-          expect(await issue(session.sessionId, two.job.jobId, 2, 5)).toBe('issued');
+          expect(await issue(session.sessionId, await leaseOf(two.job.jobId), 2, 5)).toBe('issued');
           expect(await h.store.sessions.get(alice, session.sessionId)).toMatchObject({
             questionRoundsUsed: 2,
             questionsIssued: 9,
@@ -1075,6 +1089,7 @@ export function describeStoreContract(name: string, make: MakeHarness) {
           const ctx = session.latestContext.contextRevisionId;
           const one = { round: 1, slots: 5, replaces: null };
           const first = await ask(alice, session.sessionId, ctx, 'key-00000001', one);
+          const firstLease = await leaseOf(first.job.jobId);
           // Still running: it cannot be replaced.
           await expect(
             ask(alice, session.sessionId, ctx, 'key-00000002', {
@@ -1091,8 +1106,55 @@ export function describeStoreContract(name: string, make: MakeHarness) {
             replaces: first.job.jobId,
           });
           // The failed job can no longer issue; the new holder can.
-          expect(await issue(session.sessionId, first.job.jobId, 1, 2)).toBe('stale');
-          expect(await issue(session.sessionId, second.job.jobId, 1, 2)).toBe('issued');
+          expect(await issue(session.sessionId, firstLease, 1, 2)).toBe('stale');
+          expect(await issue(session.sessionId, await leaseOf(second.job.jobId), 1, 2)).toBe(
+            'issued',
+          );
+        });
+
+        it('issues only under the lease that still runs the job, before its deadline', async () => {
+          const { session } = await create(alice, 'session-0001');
+          const ctx = session.latestContext.contextRevisionId;
+          const { job } = await ask(alice, session.sessionId, ctx, 'key-00000001', {
+            round: 1,
+            slots: 5,
+            replaces: null,
+          });
+          const old = await leaseOf(job.jobId);
+          // The first worker's lease lapses and another worker reclaims the job.
+          const current = await leaseOf(job.jobId, new Date(NOW.getTime() + 61_000));
+          expect(await issue(session.sessionId, old, 1, 2)).toBe('stale');
+          expect(
+            await issue(session.sessionId, current, 1, 2, {
+              at: new Date(DEADLINE.getTime() + 1_000),
+            }),
+          ).toBe('stale');
+          expect(await h.store.sessions.get(alice, session.sessionId)).toMatchObject({
+            questionRoundsUsed: 0,
+            questionsIssued: 0,
+          });
+          const questionSetId = randomUUID();
+          expect(await issue(session.sessionId, current, 1, 2, { questionSetId })).toBe('issued');
+          // A repeat after a lost response is answered as issued and commits nothing more.
+          expect(await issue(session.sessionId, current, 1, 2, { questionSetId })).toBe('issued');
+          expect(await h.store.sessions.get(alice, session.sessionId)).toMatchObject({
+            questionRoundsUsed: 1,
+            questionsIssued: 2,
+          });
+        });
+
+        it('replays a repeated request instead of reporting its own round as taken', async () => {
+          const { session } = await create(alice, 'session-0001');
+          const ctx = session.latestContext.contextRevisionId;
+          const one = { round: 1, slots: 5, replaces: null };
+          // Concurrent, so the loser can fail inside the admission transaction, not only on read.
+          const results = await Promise.all(
+            Array.from({ length: 4 }, () =>
+              ask(alice, session.sessionId, ctx, 'key-00000001', one),
+            ),
+          );
+          expect(new Set(results.map((r) => r.job.jobId)).size).toBe(1);
+          expect(results.filter((r) => !r.replayed)).toHaveLength(1);
         });
       });
 

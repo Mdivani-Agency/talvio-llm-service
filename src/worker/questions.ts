@@ -133,7 +133,7 @@ export function createQuestionsExecutor(deps: SessionDeps): Executor {
       const questionSetId = known ?? randomUUID();
       await paid.write('publishing', { ...(paid.ledger.publishing ?? {}), questionSetId });
       const issued = await deps.store.sessions.issueQuestionSet(
-        job.ownerId,
+        context.lease,
         {
           questionSetId,
           sessionId,
@@ -141,7 +141,6 @@ export function createQuestionsExecutor(deps: SessionDeps): Executor {
           questions,
           sourceHash: loaded.context.revision.sourceHash,
           jobDescriptionHash: loaded.context.revision.jobDescriptionHash,
-          jobId: job.jobId,
         },
         context.now(),
       );

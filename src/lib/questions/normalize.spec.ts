@@ -125,6 +125,22 @@ describe('normalizeQuestions', () => {
     expect(questions.map((q) => q.id)).toEqual(['r2-q1', 'r2-q2']);
     expect(questions.map((q) => q.topicKey)).toEqual(['b', 'c']);
   });
+  it('drops a question with an empty prompt or reason, so the set it issues is always valid', () => {
+    const { questions, warnings } = normalizeQuestions(
+      {
+        questions: [
+          raw({ topicKey: 'a', prompt: '   ' }),
+          raw({ topicKey: 'b', reason: '' }),
+          raw({ topicKey: 'c' }),
+        ],
+      },
+      ctx(),
+    );
+    expect(questions.map((q) => q.topicKey)).toEqual(['c']);
+    expect(questions.every((q) => questionSchema.safeParse(q).success)).toBe(true);
+    expect(warnings).toEqual([expect.objectContaining({ code: 'questions_dropped' })]);
+    expect(warnings[0]?.message).toMatch(/^2 questions were left out/);
+  });
 });
 
 describe('topicKeyOf', () => {

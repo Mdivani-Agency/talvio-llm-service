@@ -745,18 +745,23 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
             .map(({ sessionId: _session, ...entry }) => structuredClone(entry)),
         };
       },
-      async issueQuestionSet(ownerId, set) {
+      async issueQuestionSet(lease, set, now) {
+        const { ownerId, jobId } = lease;
         const session = owned(sessions.get(set.sessionId), ownerId);
         if (!session) return 'stale';
         const existing = questionSets.get(set.questionSetId);
-        if (existing) return existing.jobId === set.jobId ? 'issued' : 'stale';
+        if (existing) return existing.jobId === jobId ? 'issued' : 'stale';
+        const job = leased(lease);
         if (
-          session.rounds[set.round]?.jobId !== set.jobId ||
+          !job ||
+          now >= job.deadlineAt ||
+          session.expiresAt <= now ||
+          session.rounds[set.round]?.jobId !== jobId ||
           session.questionRoundsUsed !== set.round - 1
         ) {
           return 'stale';
         }
-        questionSets.set(set.questionSetId, structuredClone(set));
+        questionSets.set(set.questionSetId, structuredClone({ ...set, jobId }));
         session.questionRoundsUsed = set.round;
         session.questionsIssued += set.questions.length;
         return 'issued';

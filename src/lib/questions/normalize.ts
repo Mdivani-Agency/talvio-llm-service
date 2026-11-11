@@ -1,4 +1,9 @@
-import type { OperationResult, Question, Warning } from '@talvio/llm-contracts';
+import {
+  questionSchema,
+  type OperationResult,
+  type Question,
+  type Warning,
+} from '@talvio/llm-contracts';
 
 import type { CareerView } from '../career/view';
 import type { QuestionsOutput } from '../prompts/generate-questions';
@@ -49,10 +54,16 @@ export function normalizeQuestions(
   const requirements = new Set(ctx.analysis?.requirements.map((r) => r.id) ?? []);
   const topics = new Set(ctx.askedTopics);
   const questions: Question[] = [];
-  const dropped = { repeated: 0, invented: 0, untargeted: 0 };
+  const dropped = { repeated: 0, invented: 0, untargeted: 0, invalid: 0 };
 
   for (const raw of output.questions) {
     if (questions.length >= ctx.slots) break;
+    const prompt = raw.prompt.trim().slice(0, 500);
+    const reason = raw.reason.trim().slice(0, 500);
+    if (!prompt || !reason) {
+      dropped.invalid += 1;
+      continue;
+    }
     const topicKey = topicKeyOf(raw.topicKey);
     if (!topicKey || topics.has(topicKey)) {
       dropped.repeated += 1;
@@ -73,26 +84,32 @@ export function normalizeQuestions(
       dropped.untargeted += 1;
       continue;
     }
-    topics.add(topicKey);
-    questions.push({
+    const question = questionSchema.safeParse({
       id: `r${ctx.round}-q${questions.length + 1}`,
       topicKey,
-      prompt: raw.prompt.trim().slice(0, 500),
+      prompt,
       // Guidance never carries a number: it must not read as a suggested answer.
       guidance: raw.guidance && !/\d/.test(raw.guidance) ? raw.guidance.trim().slice(0, 500) : null,
-      reason: raw.reason.trim().slice(0, 500),
+      reason,
       targetSection,
       targetEntityId,
       requirementIds,
     });
+    // The set is issued as is, so a question the contract would reject never reaches it.
+    if (!question.success) {
+      dropped.invalid += 1;
+      continue;
+    }
+    topics.add(topicKey);
+    questions.push(question.data);
   }
 
   const warnings: Warning[] = [];
-  const total = dropped.repeated + dropped.invented + dropped.untargeted;
+  const total = dropped.repeated + dropped.invented + dropped.untargeted + dropped.invalid;
   if (total) {
     warnings.push({
       code: 'questions_dropped',
-      message: `${total} question${total === 1 ? ' was' : 's were'} left out because ${total === 1 ? 'it' : 'they'} repeated an earlier topic, stated numbers the profile does not contain, or pointed at no gap.`,
+      message: `${total} question${total === 1 ? ' was' : 's were'} left out because ${total === 1 ? 'it' : 'they'} repeated an earlier topic, stated numbers the profile does not contain, pointed at no gap, or ${total === 1 ? 'was' : 'were'} incomplete.`,
       entityId: null,
       page: null,
     });
