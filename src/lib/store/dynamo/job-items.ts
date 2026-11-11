@@ -17,6 +17,11 @@ export const resultKey = (ownerId: string, jobId: string) => ({
   pk: userKey(ownerId),
   sk: `RESULT#${jobId}`,
 });
+/** The admitted request: content, so it ages out with results (7 days). */
+export const inputKey = (ownerId: string, jobId: string) => ({
+  pk: userKey(ownerId),
+  sk: `INPUT#${jobId}`,
+});
 
 export type JobItem = {
   pk: string;

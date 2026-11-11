@@ -13,8 +13,8 @@ import { PLANS, type Plan } from './plans';
 /** Bump when a default below changes, so job records show which table admitted them. */
 export const LIMITS_VERSION = '2026-11-10.1';
 
-/** Pricing table used to price reservations until the worker brings real prices (MDI-215). */
-export const PRICING_VERSION = 'unpriced-1';
+/** Price table jobs are admitted and settled under (src/lib/model/pricing.ts). */
+export { PRICING_VERSION } from './model/pricing';
 
 /** Budget the planner may spend on one job before the hard cap applies. */
 export const PLANNING_BUDGET_MICRO_USD = 100_000;

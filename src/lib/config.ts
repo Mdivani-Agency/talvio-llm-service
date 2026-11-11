@@ -79,6 +79,20 @@ const configSchema = z
     /** Largest JSON request body accepted, in bytes. */
     MAX_BODY_BYTES: z.coerce.number().int().min(1_024).max(6_000_000).default(1_000_000),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+    /**
+     * Region the Bedrock runtime client calls: the inference source Region of the US geographic
+     * profile, from SSM /<stage>/llm/bedrock-region. Processing may happen in other US Regions.
+     */
+    BEDROCK_REGION: z
+      .string()
+      .regex(/^[a-z]{2}-[a-z]+-\d$/)
+      .default('us-west-1'),
+    /**
+     * Pinned input guardrail (prompt-attack filter), from SSM /<stage>/llm/guardrail-{id,version}.
+     * Without both, no operation that calls a model is enabled: inference never bypasses it.
+     */
+    GUARDRAIL_ID: z.string().min(1).optional(),
+    GUARDRAIL_VERSION: z.string().regex(/^\d+$/).optional(),
   })
   .refine(
     (config) => config.STORE_DRIVER !== 'memory' || ['local', 'test'].includes(config.STAGE),
@@ -132,6 +146,10 @@ const configSchema = z
       path: ['OCR_CONTENT_TYPES'],
     },
   )
+  .refine((config) => Boolean(config.GUARDRAIL_ID) === Boolean(config.GUARDRAIL_VERSION), {
+    message: 'GUARDRAIL_ID and GUARDRAIL_VERSION are set together',
+    path: ['GUARDRAIL_ID'],
+  })
   .refine((config) => !config.DYNAMODB_ENDPOINT || ['local', 'test'].includes(config.STAGE), {
     message: 'DYNAMODB_ENDPOINT is only allowed on local and test stages',
     path: ['DYNAMODB_ENDPOINT'],

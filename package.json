@@ -16,7 +16,8 @@
     "test": "jest",
     "test:coverage": "jest --coverage",
     "test:contracts": "yarn workspace @talvio/llm-contracts test",
-    "check": "yarn lint && yarn typecheck && yarn test && yarn test:contracts"
+    "check": "yarn lint && yarn typecheck && yarn test && yarn test:contracts",
+    "smoke:bedrock": "BEDROCK_SMOKE=1 jest src/lib/model/bedrock.smoke.spec.ts --runInBand"
   },
   "author": "Giorgi Mdivani",
   "license": "ISC",
@@ -24,6 +25,7 @@
     "node": ">=22"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "3.1149.0",
     "@aws-sdk/client-dynamodb": "3.1149.0",
     "@aws-sdk/client-s3": "3.1149.0",
     "@aws-sdk/client-sqs": "3.1149.0",

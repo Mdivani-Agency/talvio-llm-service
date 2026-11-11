@@ -19,6 +19,7 @@ import { epochSeconds, transact, utcDay, type Db, type TransactItem } from './db
 import { held, jobKey, resultKey, toRecord, type JobItem } from './job-items';
 import { eventItem } from './outbox';
 import { settleQuota, failedAt } from './quota';
+import { committedSpend } from '../../ledger';
 import { dueSweeps, sweepDelete, sweepKey, sweepPut } from './sweep';
 
 const crashError = (jobId: string): JobError => ({
@@ -101,8 +102,10 @@ export function createDynamoExecutionStore(db: Db): ExecutionStore {
     now: Date,
     options: { error?: JobError | null; committedTotal?: number; result?: unknown },
   ): Promise<boolean> {
+    // The ledger in the checkpoints may hold paid calls the caller does not know about (a retry
+    // exhaustion, an expiry), so the larger of the two is kept.
     const committedTotal = Math.min(
-      options.committedTotal ?? it.spendCommittedMicroUsd,
+      Math.max(options.committedTotal ?? 0, committedSpend(it)),
       it.budgetCapMicroUsd,
     );
     const day = utcDay(new Date(it.createdAt));

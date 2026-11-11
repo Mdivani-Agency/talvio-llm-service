@@ -163,6 +163,7 @@ async function docxOutcome(
       versionId,
       sha256: sha256Hex(Buffer.from(extraction.text, 'utf8')),
       chars: extraction.text.length,
+      bytes: Buffer.byteLength(extraction.text, 'utf8'),
       extractorVersion: extraction.extractorVersion,
       method: 'docx',
     },

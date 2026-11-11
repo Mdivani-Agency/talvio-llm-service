@@ -168,6 +168,7 @@ export async function completeOcr(
       versionId,
       sha256: sha256Hex(Buffer.from(text, 'utf8')),
       chars: text.length,
+      bytes: Buffer.byteLength(text, 'utf8'),
       extractorVersion: OCR_EXTRACTOR_VERSION,
       method: 'ocr',
     },

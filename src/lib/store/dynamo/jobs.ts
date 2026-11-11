@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import type { CreateJobRequest } from '@talvio/llm-contracts';
 
 import { BatchGetCommand, GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 
@@ -12,7 +13,6 @@ import {
   limitOverrideSchema,
   resolveLimits,
   type LimitOverride,
-  type ResolvedLimits,
   type UserLimits,
 } from '../../limits';
 import type { Plan } from '../../plans';
@@ -38,6 +38,7 @@ import {
   idemKey,
   jobKey,
   resultKey,
+  inputKey,
   toRecord,
   type JobItem,
   type ResultItem,
@@ -45,7 +46,8 @@ import {
 } from './job-items';
 import { eventItem } from './outbox';
 import { sweepDelete, sweepPut } from './sweep';
-import { failedAt, limitsKey, preflight, quotaFailure, releaseQuota, takeQuota } from './quota';
+import { failedAt, limitsKey, preflight, quotaFailure, settleQuota, takeQuota } from './quota';
+import { committedSpend } from '../../ledger';
 
 /** Compare-and-set attempts for cancel, retry and delete when a worker changes the job meanwhile. */
 const ATTEMPTS = 3;
@@ -63,8 +65,6 @@ export type DynamoJobStoreOptions = {
 export type DynamoJobStore = JobStore & {
   /** Publishes the result payload; it expires after the content retention period. Used by the worker (MDI-215). */
   putResult(ownerId: string, jobId: string, result: unknown, now: Date): Promise<void>;
-  /** The user's limits as admission would resolve them now. */
-  limitsFor(ownerId: string, plan: Plan): Promise<ResolvedLimits>;
 };
 
 export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}): DynamoJobStore {
@@ -105,6 +105,18 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
       }),
     );
     return Item && !isExpired(Item, now) ? ((Item as ResultItem).result ?? null) : null;
+  }
+
+  async function loadInput(ownerId: string, jobId: string, now = new Date()) {
+    if (!(await loadItem(ownerId, jobId, now))) return null;
+    const { Item } = await client.send(
+      new GetCommand({
+        TableName: tables.jobs,
+        Key: inputKey(ownerId, jobId),
+        ConsistentRead: true,
+      }),
+    );
+    return Item && !isExpired(Item, now) ? ((Item.request as CreateJobRequest) ?? null) : null;
   }
 
   async function load(ownerId: string, jobId: string, now = new Date()): Promise<JobRecord | null> {
@@ -237,6 +249,17 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
         ...takeQuota(db, ownerId, take),
         { Put: { TableName: tables.outbox, Item: eventItem(event, expiresAt) } },
         sweepPut(db, { ownerId, jobId, deadlineAt }, new Date(now.getTime() + DISPATCH_GRACE_MS)),
+        // Last, so the index-based failure checks above keep their positions.
+        {
+          Put: {
+            TableName: tables.jobs,
+            Item: {
+              ...inputKey(ownerId, jobId),
+              request,
+              expiresAt: epochSeconds(now) + RETENTION_MS.content / 1000,
+            },
+          },
+        },
       ]);
     } catch (error) {
       if (failedAt(error, 1)) {
@@ -333,7 +356,7 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
               TableName: tables.jobs,
               Key: jobKey(ownerId, jobId),
               UpdateExpression:
-                'SET #status = :cancelled, #stage = :done, updatedAt = :now, spendReservedMicroUsd = :zero',
+                'SET #status = :cancelled, #stage = :done, updatedAt = :now, spendReservedMicroUsd = :zero, spendCommittedMicroUsd = :committed',
               ConditionExpression: '#status = :seen',
               ExpressionAttributeNames: { '#status': 'status', '#stage': 'stage' },
               ExpressionAttributeValues: {
@@ -342,10 +365,11 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
                 ':seen': job.status,
                 ':now': now.toISOString(),
                 ':zero': 0,
+                ':committed': committedSpend(job),
               },
             },
           },
-          ...releaseQuota(db, ownerId, job, utcDay(job.createdAt)),
+          ...settleQuota(db, ownerId, job, committedSpend(job), utcDay(job.createdAt)),
           sweepDelete(db, ownerId, jobId),
         ]);
         return load(ownerId, jobId, now);
@@ -448,7 +472,10 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
           },
           { Delete: { TableName: tables.jobs, Key: idemKey(ownerId, job.idempotencyKey) } },
           { Delete: { TableName: tables.jobs, Key: resultKey(ownerId, jobId) } },
-          ...(held(job) ? releaseQuota(db, ownerId, job, utcDay(job.createdAt)) : []),
+          { Delete: { TableName: tables.jobs, Key: inputKey(ownerId, jobId) } },
+          ...(held(job)
+            ? settleQuota(db, ownerId, job, committedSpend(job), utcDay(job.createdAt))
+            : []),
           sweepDelete(db, ownerId, jobId),
         ]);
         return true;
@@ -465,6 +492,7 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
     findByIdempotencyKey,
     admit,
     get: (ownerId, jobId) => load(ownerId, jobId),
+    input: (ownerId, jobId) => loadInput(ownerId, jobId),
     list,
     cancel,
     retry,

@@ -11,6 +11,7 @@ import {
 import { ApiError, notFound } from '@lib/errors';
 import { contentHash } from '@lib/hash';
 import { QuotaExceededError } from '@lib/limits';
+import { maxUtf8Bytes, parseFits } from '@lib/model/preflight';
 import { IdempotencyConflictError, InvalidCursorError, type JobRecord } from '@lib/store';
 import { parseWith } from '@lib/validation';
 
@@ -111,6 +112,27 @@ async function checkReferences(deps: Deps, ownerId: string, request: CreateJobRe
   }
 }
 
+/** Input whose worst-case cost cannot fit the job budget is refused before admission. */
+async function checkAffordable(
+  deps: Deps,
+  ownerId: string,
+  request: CreateJobRequest,
+  budgetMicroUsd: number,
+) {
+  if (request.operation !== 'parse_document') return;
+  let size: { chars: number; bytes: number };
+  if (request.input.kind === 'text') {
+    size = { chars: request.input.text.length, bytes: Buffer.byteLength(request.input.text) };
+  } else {
+    const artifact = (await deps.store.documents.get(ownerId, request.input.documentId))?.artifact;
+    if (!artifact) throw new ApiError('unusable_document');
+    size = { chars: artifact.chars, bytes: artifact.bytes ?? maxUtf8Bytes(artifact.chars) };
+  }
+  if (!parseFits(size, budgetMicroUsd)) {
+    throw new ApiError('budget_exceeded_preflight');
+  }
+}
+
 /** A refused limit becomes the contract's retryable quota error; anything else passes through. */
 function asQuotaError(error: unknown): unknown {
   return error instanceof QuotaExceededError ? new ApiError('quota_exceeded') : error;
@@ -145,6 +167,9 @@ export const createJob: RouteHandler = async (request, deps) => {
   }
 
   await checkReferences(deps, ownerId, body);
+  // The same limits admission reserves with (configured plan limits and the owner's override).
+  const limits = await deps.store.jobs.limitsFor(ownerId, planOf(request));
+  await checkAffordable(deps, ownerId, body, limits.jobBudgetMicroUsd);
 
   try {
     const { job, replayed, event } = await deps.store.jobs.admit({
