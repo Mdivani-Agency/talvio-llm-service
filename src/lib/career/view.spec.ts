@@ -65,4 +65,18 @@ describe('careerView', () => {
       }),
     ).toBeNull();
   });
+
+  it('can list each description line as its own field', () => {
+    const lines = careerView(TAILOR_SOURCE.document, { descriptionLines: true });
+    expect(
+      lines.fields.filter((f) => f.entityId === ACME && f.field.startsWith('description')),
+    ).toEqual([
+      expect.objectContaining({
+        field: 'description.0',
+        text: 'Led the payments platform team at Acme.',
+      }),
+      expect.objectContaining({ field: 'description.1', text: 'Cut checkout latency by 40%' }),
+      expect.objectContaining({ field: 'description.2', text: 'Mentored three engineers' }),
+    ]);
+  });
 });

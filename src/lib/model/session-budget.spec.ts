@@ -4,15 +4,17 @@ import { SESSION_GOLDEN } from '../../test/fixtures/session-golden';
 import { careerView } from '../career/view';
 import { ANALYZE_PACK, analysisMessage } from '../prompts/analyze-resume';
 import { QUESTIONS_PACK, questionsMessage } from '../prompts/generate-questions';
+import { IMPROVE_PACK, improveGuardText, improveMessage } from '../prompts/improve';
 import { untrustedText, type SessionInput } from '../prompts/session-input';
 import { guardrailBound, planCall } from './budget';
 import { fixedBytes, type PromptPack } from './pack';
 import { callFits } from './preflight';
 
 /*
- * The cost side of MDI-218's acceptance, checked offline: on the golden set the worst case of
- * one analysis or questions call (guardrail plus the full output allocation) stays at or below
- * the USD 0.04 p95 target, so typical inputs never fail on budget and the USD 0.05 cap holds.
+ * The cost side of MDI-218's and MDI-219's acceptance, checked offline: on the golden set the
+ * worst case of one analysis, questions or improvement call (guardrail plus the full output
+ * allocation) stays at or below the USD 0.04 p95 target, so typical inputs never fail on budget
+ * and the USD 0.05 cap holds.
  * Metered cost against real Bedrock is measured by `yarn smoke:bedrock`.
  */
 
@@ -43,6 +45,18 @@ describe.each(SESSION_GOLDEN)('golden fixture $name', ({ source, jobDescription 
     const user = analysisMessage(input, []);
     expect(callFits(ANALYZE_PACK, user, guarded.length, CAP)).toBe(true);
     expect(worstCase(ANALYZE_PACK, user, guarded)).toBeLessThanOrEqual(P95_TARGET);
+  });
+
+  it('fits improvement within the p95 target at its worst case', () => {
+    const lines: SessionInput = {
+      ...input,
+      view: careerView(source.document, { descriptionLines: true }),
+    };
+    const targetRole = 'Staff Backend Engineer';
+    const user = improveMessage({ ...lines, sections: [], targetRole });
+    const text = improveGuardText(untrustedText(lines), targetRole);
+    expect(callFits(IMPROVE_PACK, user, text.length, CAP)).toBe(true);
+    expect(worstCase(IMPROVE_PACK, user, text)).toBeLessThanOrEqual(P95_TARGET);
   });
 
   it('fits questions within the p95 target at its worst case', () => {

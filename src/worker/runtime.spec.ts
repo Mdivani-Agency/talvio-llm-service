@@ -23,6 +23,8 @@ describe('createExecutors', () => {
       'parse_document',
       'analyze_resume',
       'generate_questions',
+      'improve_profile',
+      'improve_resume',
     ]);
   });
 });

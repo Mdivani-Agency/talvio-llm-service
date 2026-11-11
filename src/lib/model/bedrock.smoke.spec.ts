@@ -5,6 +5,7 @@ import { createMemoryStore } from '../store/memory';
 import { GOLDEN } from '../../test/fixtures/golden';
 import { SESSION_GOLDEN } from '../../test/fixtures/session-golden';
 import { createAnalyzeExecutor } from '../../worker/analyze';
+import { createImproveExecutor } from '../../worker/improve';
 import { createParseExecutor } from '../../worker/parse';
 import { createQuestionsExecutor } from '../../worker/questions';
 import { contentHash } from '../hash';
@@ -101,7 +102,7 @@ suite('Bedrock smoke test', () => {
     expect(p95).toBeLessThanOrEqual(P95_TARGET);
   });
 
-  it('analyzes and asks questions on the session golden set within the cap and the p95 target', async () => {
+  it('analyzes, asks questions and improves on the session golden set within the cap and the p95 target', async () => {
     const model = createBedrockModel(config!.BEDROCK_REGION);
     const guardrail = createBedrockGuardrail(
       config!.BEDROCK_REGION,
@@ -109,10 +110,12 @@ suite('Bedrock smoke test', () => {
       config!.GUARDRAIL_VERSION!,
     );
     const owner = '00000000-0000-4000-8000-000000000001';
-    const costs: Record<'analyze_resume' | 'generate_questions', number[]> = {
-      analyze_resume: [],
-      generate_questions: [],
-    };
+    type SessionOperation =
+      | 'analyze_resume'
+      | 'generate_questions'
+      | 'improve_profile'
+      | 'improve_resume';
+    const costs: Partial<Record<SessionOperation, number[]>> = {};
     for (const fixture of SESSION_GOLDEN) {
       const store = createMemoryStore();
       const logger = createLogger('info', (line) => process.stdout.write(`${line}\n`));
@@ -120,6 +123,8 @@ suite('Bedrock smoke test', () => {
       const executors = {
         analyze_resume: createAnalyzeExecutor(deps),
         generate_questions: createQuestionsExecutor(deps),
+        improve_profile: createImproveExecutor(deps, 'improve_profile'),
+        improve_resume: createImproveExecutor(deps, 'improve_resume'),
       };
       const now = new Date();
       const sourceHash = contentHash(fixture.source);
@@ -141,7 +146,9 @@ suite('Bedrock smoke test', () => {
         now,
       });
       let analysisJobId: string | null = null;
-      for (const operation of ['analyze_resume', 'generate_questions'] as const) {
+      const improve =
+        fixture.source.source.kind === 'profile' ? 'improve_profile' : 'improve_resume';
+      for (const operation of ['analyze_resume', 'generate_questions', improve] as const) {
         const key = `smoke-${fixture.name}-${operation}-${now.getTime()}`;
         const { job } = await store.jobs.admit({
           ownerId: owner,
@@ -160,7 +167,9 @@ suite('Bedrock smoke test', () => {
             input:
               operation === 'analyze_resume'
                 ? { sections: [] }
-                : { analysisJobId, round: 1, maxQuestions: 5 },
+                : operation === 'generate_questions'
+                  ? { analysisJobId, round: 1, maxQuestions: 5 }
+                  : { sections: [], targetRole: null },
           } as never,
           now,
           deadlineAt: new Date(now.getTime() + 600_000),
@@ -179,7 +188,7 @@ suite('Bedrock smoke test', () => {
         );
         expect(outcome).toBe('succeeded');
         expect(cost).toBeLessThanOrEqual(CAP);
-        costs[operation].push(cost);
+        (costs[operation] ??= []).push(cost);
         if (operation === 'analyze_resume') analysisJobId = job.jobId;
       }
     }

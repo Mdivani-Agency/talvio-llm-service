@@ -11,12 +11,14 @@ import {
   type ModelResponse,
 } from '../lib/model/client';
 import { ANALYZE_PACK } from '../lib/prompts/analyze-resume';
+import { IMPROVE_PACK } from '../lib/prompts/improve';
 import { QUESTIONS_PACK, type QuestionsOutput } from '../lib/prompts/generate-questions';
 import type { WorkMessage } from '../lib/queue';
 import type { AdmitJobInput } from '../lib/store';
 import { createMemoryStore, type MemoryStore } from '../lib/store/memory';
-import { JOB, TAILOR_SOURCE, analysisOutput } from '../test/fixtures/session';
+import { JOB, TAILOR_SOURCE, analysisOutput, handle } from '../test/fixtures/session';
 import { createAnalyzeExecutor } from './analyze';
+import { createImproveExecutor } from './improve';
 import { createQuestionsExecutor } from './questions';
 import { runJob } from './run';
 
@@ -77,7 +79,7 @@ describe('session operations', () => {
   });
 
   async function admit(
-    operation: 'analyze_resume' | 'generate_questions',
+    operation: 'analyze_resume' | 'generate_questions' | 'improve_profile' | 'improve_resume',
     input: Record<string, unknown>,
     questionRound?: AdmitJobInput['questionRound'],
   ) {
@@ -122,6 +124,8 @@ describe('session operations', () => {
         executors: {
           analyze_resume: createAnalyzeExecutor(deps),
           generate_questions: createQuestionsExecutor(deps),
+          improve_profile: createImproveExecutor(deps, 'improve_profile'),
+          improve_resume: createImproveExecutor(deps, 'improve_resume'),
         },
         now: () => START,
         random: () => 0,
@@ -274,6 +278,73 @@ describe('session operations', () => {
       session!.rounds[1] = { jobId: randomUUID(), slots: 5 };
       expect(await run(jobId)).toBe('failed');
       expect((await job(jobId))?.error?.code).toBe('revoked');
+      expect(model.requests).toHaveLength(0);
+    });
+  });
+
+  describe('improve_profile / improve_resume', () => {
+    const ACME = '1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f51';
+    const lines = careerView(TAILOR_SOURCE.document, { descriptionLines: true });
+
+    it('guards the source and target role, makes one call and publishes a reviewable proposal', async () => {
+      const jobId = await admit('improve_profile', {
+        sections: ['experience'],
+        targetRole: 'Staff Engineer',
+      });
+      model.responses.push(
+        reply({
+          changes: [
+            {
+              entityId: ACME,
+              field: 'achievements',
+              value: null,
+              lines: [
+                {
+                  keep: null,
+                  text: 'Reduced checkout latency by 40%',
+                  from: [handle(lines, ACME, 'achievements.0')],
+                  style: null,
+                },
+              ],
+              reason: 'Stronger verb.',
+            },
+          ],
+          additions: [],
+          summary: 'Sharper Acme achievement.',
+        }),
+      );
+      expect(await run(jobId)).toBe('succeeded');
+
+      const envelope = resultEnvelopeSchemas.improve_profile.parse((await job(jobId))!.result);
+      expect(envelope).toMatchObject({
+        resultKind: 'complete',
+        contextRevisionId,
+        versions: { promptVersion: IMPROVE_PACK.promptVersion, modelId: IMPROVE_PACK.modelId },
+      });
+      expect(envelope.result.proposal).toMatchObject({
+        applyTarget: { kind: 'profile', profileId: TAILOR_SOURCE.source.id },
+        changes: [
+          {
+            target: { section: 'experience', entityId: ACME, field: 'achievements' },
+            originalValue: ['Cut checkout latency by 40%'],
+            proposedValue: ['Reduced checkout latency by 40%'],
+            confirmation: { required: true },
+          },
+        ],
+      });
+      expect(guardrail.checked.join('\n')).toContain('Staff Engineer');
+      expect(model.requests).toHaveLength(1);
+      expect(JSON.stringify(model.requests[0])).not.toMatch(
+        /nino@example\.com|Beridze|github\.com/,
+      );
+      expect(logs.join('\n')).not.toMatch(/checkout|Acme/);
+    });
+
+    it('is revoked when the operation does not fit the source, before any paid call', async () => {
+      const jobId = await admit('improve_resume', { sections: [], targetRole: null });
+      expect(await run(jobId)).toBe('failed');
+      expect((await job(jobId))?.error?.code).toBe('revoked');
+      expect(guardrail.checked).toHaveLength(0);
       expect(model.requests).toHaveLength(0);
     });
   });
