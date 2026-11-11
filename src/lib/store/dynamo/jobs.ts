@@ -16,9 +16,11 @@ import {
   type UserLimits,
 } from '../../limits';
 import type { Plan } from '../../plans';
+import { LIMITS } from '@talvio/llm-contracts';
 import {
   IdempotencyConflictError,
   InvalidCursorError,
+  QuestionRoundTakenError,
   type AdmitJobInput,
   type JobRecord,
   type JobStore,
@@ -48,6 +50,7 @@ import { eventItem } from './outbox';
 import { sweepDelete, sweepPut } from './sweep';
 import { failedAt, limitsKey, preflight, quotaFailure, settleQuota, takeQuota } from './quota';
 import { committedSpend } from '../../ledger';
+import { roundAttribute } from './sessions';
 
 /** Compare-and-set attempts for cancel, retry and delete when a worker changes the job meanwhile. */
 const ATTEMPTS = 3;
@@ -88,6 +91,58 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
 
   const limitsFor = async (ownerId: string, plan: Plan) =>
     resolveLimits(plan, await loadOverride(ownerId), planLimits);
+
+  /**
+   * Takes question round `round` of the session for `jobId`: the round must be the next one, free
+   * (or held by `replaces`, a job that ended without a result) and the session must have `slots`
+   * questions left (design §12). Rounds run one at a time, so the slot check cannot race.
+   */
+  const questionRoundItems = (
+    ownerId: string,
+    sessionId: string,
+    jobId: string,
+    take: NonNullable<AdmitJobInput['questionRound']>,
+    now: Date,
+  ): TransactItem[] => [
+    {
+      Update: {
+        TableName: tables.sessions,
+        Key: { pk: userKey(ownerId), sk: `SESS#${sessionId}` },
+        UpdateExpression: 'SET #holder = :holder',
+        ConditionExpression:
+          'attribute_exists(pk) AND #status = :open AND expiresAt > :now AND ' +
+          'questionRoundsUsed = :previous AND questionsIssued <= :maxIssued AND ' +
+          (take.replaces ? '#holder.jobId = :replaces' : 'attribute_not_exists(#holder)'),
+        ExpressionAttributeNames: { '#holder': roundAttribute(take.round), '#status': 'status' },
+        ExpressionAttributeValues: {
+          ':holder': { jobId, slots: take.slots },
+          ':open': 'open',
+          ':now': epochSeconds(now),
+          ':previous': take.round - 1,
+          ':maxIssued': LIMITS.questionsPerSession - take.slots,
+          ...(take.replaces ? { ':replaces': take.replaces } : {}),
+        },
+      },
+    },
+    ...(take.replaces
+      ? [
+          {
+            ConditionCheck: {
+              TableName: tables.jobs,
+              Key: jobKey(ownerId, take.replaces),
+              ConditionExpression:
+                'attribute_not_exists(pk) OR #status IN (:failed, :cancelled, :expired)',
+              ExpressionAttributeNames: { '#status': 'status' },
+              ExpressionAttributeValues: {
+                ':failed': 'failed',
+                ':cancelled': 'cancelled',
+                ':expired': 'expired',
+              },
+            },
+          } satisfies TransactItem,
+        ]
+      : []),
+  ];
 
   async function loadItem(ownerId: string, jobId: string, now: Date): Promise<JobItem | null> {
     const { Item } = await client.send(
@@ -226,10 +281,15 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
       availableAt: now,
     };
 
+    let roundAt = 0;
+    const roundItems =
+      input.questionRound && session
+        ? questionRoundItems(ownerId, session.sessionId, jobId, input.questionRound, now)
+        : [];
     try {
       // One transaction: the job, its idempotency record, the quota and spend holds and the
       // outbox event are all written, or none are. Nothing here waits on a model or OCR call.
-      await transact([
+      const items: TransactItem[] = [
         {
           Put: {
             TableName: tables.jobs,
@@ -260,8 +320,13 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
             },
           },
         },
-      ]);
+      ];
+      roundAt = items.length;
+      await transact([...items, ...roundItems]);
     } catch (error) {
+      if (roundItems.some((_, i) => failedAt(error, roundAt + i))) {
+        throw new QuestionRoundTakenError();
+      }
       if (failedAt(error, 1)) {
         // Another request with this key won the race: answer it as a replay.
         const winner = await findByIdempotencyKey(ownerId, idempotencyKey);

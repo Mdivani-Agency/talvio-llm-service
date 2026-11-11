@@ -102,7 +102,21 @@ export type AdmitJobInput = {
   request: CreateJobRequest;
   now: Date;
   deadlineAt: Date;
+  /**
+   * generate_questions only: takes this question round of the session and holds `slots` of its
+   * issued-question allowance, in the same transaction as the job. `replaces` names an earlier job
+   * that held the round and ended without a result; any other holder refuses the admission.
+   */
+  questionRound?: { round: number; slots: number; replaces: string | null };
 };
+
+/** The session's question round is held by another job, already issued, or out of order. */
+export class QuestionRoundTakenError extends Error {
+  constructor() {
+    super('Question round is not available');
+    this.name = 'QuestionRoundTakenError';
+  }
+}
 
 export interface JobStore {
   findByIdempotencyKey(ownerId: string, idempotencyKey: string): Promise<JobRecord | null>;
@@ -346,6 +360,8 @@ export type SessionRecord = {
   latestContext: ContextRevision;
   questionRoundsUsed: number;
   questionsIssued: number;
+  /** The job holding each question round and the question slots it reserved. */
+  rounds: Record<number, { jobId: string; slots: number }>;
   createdAt: Date;
   expiresAt: Date;
 };
@@ -366,6 +382,27 @@ export type QuestionSetRecord = {
   /** The source and job description the questions were issued for. */
   sourceHash: string;
   jobDescriptionHash: string | null;
+  /** The generate_questions job that issued the set; null for sets made outside a job. */
+  jobId: string | null;
+};
+
+/** One submission of answers; a later submission for the same question replaces the earlier. */
+export type AnswerSubmission = {
+  answerRevisionId: string;
+  questionSetId: string;
+  answers: Answer[];
+  createdAt: Date;
+};
+
+/** Everything a session operation reads: the revision, its content and the session's history. */
+export type SessionContext = {
+  revision: ContextRevision;
+  source: SourceSnapshot;
+  jobDescription: JobDescription | null;
+  /** Every set issued in the session, by round. */
+  questionSets: QuestionSetRecord[];
+  /** Submissions made up to this revision, oldest first. */
+  answers: AnswerSubmission[];
 };
 
 export interface SessionStore {
@@ -398,6 +435,21 @@ export interface SessionStore {
     set: QuestionSetRecord,
     now: Date,
   ): Promise<QuestionSetRecord | null>;
+  /** A context revision of the session with its content and history; null when not the owner's. */
+  context(
+    ownerId: string,
+    sessionId: string,
+    contextRevisionId: string,
+  ): Promise<SessionContext | null>;
+  /**
+   * Publishes a generate_questions set: stores it and commits its round and question count, if
+   * `set.jobId` still holds the round. 'issued' again for a set already issued by that job.
+   */
+  issueQuestionSet(
+    ownerId: string,
+    set: QuestionSetRecord & { jobId: string },
+    now: Date,
+  ): Promise<'issued' | 'stale'>;
   /** Records an answer revision and returns the new latest context, or 'stale'. */
   addAnswers(input: {
     ownerId: string;

@@ -7,6 +7,7 @@ import type { Plan } from '../plans';
 import {
   IdempotencyConflictError,
   InvalidCursorError,
+  QuestionRoundTakenError,
   type ContextInput,
   type Store,
 } from './types';
@@ -870,6 +871,7 @@ export function describeStoreContract(name: string, make: MakeHarness) {
           questions: [],
           sourceHash: 'a'.repeat(64),
           jobDescriptionHash: null,
+          jobId: null,
         };
         expect(await h.store.sessions.saveQuestionSet(bob, set, NOW)).toBeNull();
         expect(await h.store.sessions.saveQuestionSet(alice, set, NOW)).toEqual(set);
@@ -908,6 +910,192 @@ export function describeStoreContract(name: string, make: MakeHarness) {
         ).toBe('stale');
       });
 
+      it('keeps each revision’s content and the answers given up to it', async () => {
+        const { session } = await create(alice, 'session-0001');
+        const first = session.latestContext;
+        const ctx = await h.store.sessions.context(
+          alice,
+          session.sessionId,
+          first.contextRevisionId,
+        );
+        expect(ctx).toMatchObject({
+          revision: first,
+          source: {},
+          jobDescription: null,
+          answers: [],
+        });
+        expect(
+          await h.store.sessions.context(bob, session.sessionId, first.contextRevisionId),
+        ).toBeNull();
+        expect(await h.store.sessions.context(alice, session.sessionId, randomUUID())).toBeNull();
+
+        const set = h.store.sessions.saveQuestionSet(
+          alice,
+          {
+            questionSetId: randomUUID(),
+            sessionId: session.sessionId,
+            round: 1,
+            questions: [],
+            sourceHash: first.sourceHash,
+            jobDescriptionHash: null,
+            jobId: null,
+          },
+          NOW,
+        );
+        const saved = (await set)!;
+        const answers = [{ questionId: 'q1', status: 'skipped' as const }];
+        const answered = await h.store.sessions.addAnswers({
+          ownerId: alice,
+          sessionId: session.sessionId,
+          baseContextRevisionId: first.contextRevisionId,
+          questionSetId: saved.questionSetId,
+          answers,
+          answersHash: 'd'.repeat(64),
+          now: new Date(NOW.getTime() + 1_000),
+        });
+        if (!answered || answered === 'stale') throw new Error('not answered');
+        const next = await h.store.sessions.context(
+          alice,
+          session.sessionId,
+          answered.contextRevisionId,
+        );
+        expect(next).toMatchObject({
+          revision: answered,
+          source: {},
+          questionSets: [expect.objectContaining({ questionSetId: saved.questionSetId })],
+          answers: [expect.objectContaining({ questionSetId: saved.questionSetId, answers })],
+        });
+        // The earlier revision does not see answers given after it.
+        expect(
+          (await h.store.sessions.context(alice, session.sessionId, first.contextRevisionId))
+            ?.answers,
+        ).toEqual([]);
+      });
+
+      describe('question rounds', () => {
+        const ask = (
+          owner: string,
+          sessionId: string,
+          contextRevisionId: string,
+          key: string,
+          round: { round: number; slots: number; replaces: string | null },
+        ) =>
+          h.store.jobs.admit({
+            ownerId: owner,
+            plan: FREE,
+            pipelineReleaseId: 'v1',
+            idempotencyKey: key,
+            requestHash: `hash-${key}`,
+            request: {
+              schemaVersion: '1.0',
+              clientRequestId: key,
+              operation: 'generate_questions',
+              sessionId,
+              contextRevisionId,
+              parentJobId: null,
+              input: { analysisJobId: null, round: round.round, maxQuestions: round.slots },
+            } as unknown as CreateJobRequest,
+            now: NOW,
+            deadlineAt: DEADLINE,
+            questionRound: round,
+          });
+        const issue = (sessionId: string, jobId: string, round: number, count: number) =>
+          h.store.sessions.issueQuestionSet(
+            alice,
+            {
+              questionSetId: randomUUID(),
+              sessionId,
+              round,
+              questions: Array.from({ length: count }, (_, i) => ({
+                id: `q${round}-${i}`,
+                topicKey: `topic-${round}-${i}`,
+                prompt: 'p',
+                guidance: null,
+                reason: 'r',
+                targetSection: null,
+                targetEntityId: null,
+                requirementIds: [],
+              })),
+              sourceHash: 'a'.repeat(64),
+              jobDescriptionHash: null,
+              jobId,
+            },
+            NOW,
+          );
+
+        beforeEach(async () => {
+          await h.setLimitOverride(alice, WIDE);
+        });
+
+        it('takes rounds in order, one job each, and commits what a set issues', async () => {
+          const { session } = await create(alice, 'session-0001');
+          const ctx = session.latestContext.contextRevisionId;
+          const one = { round: 1, slots: 5, replaces: null };
+          const { job } = await ask(alice, session.sessionId, ctx, 'key-00000001', one);
+          await expect(
+            ask(alice, session.sessionId, ctx, 'key-00000002', one),
+          ).rejects.toBeInstanceOf(QuestionRoundTakenError);
+          // Round 2 waits for round 1's set.
+          await expect(
+            ask(alice, session.sessionId, ctx, 'key-00000003', { ...one, round: 2 }),
+          ).rejects.toBeInstanceOf(QuestionRoundTakenError);
+          // Another user cannot take a round of this session.
+          await expect(
+            ask(bob, session.sessionId, ctx, 'key-00000004', one),
+          ).rejects.toBeInstanceOf(QuestionRoundTakenError);
+
+          expect(await issue(session.sessionId, randomUUID(), 1, 3)).toBe('stale');
+          expect(await issue(session.sessionId, job.jobId, 1, 4)).toBe('issued');
+          expect(await h.store.sessions.get(alice, session.sessionId)).toMatchObject({
+            questionRoundsUsed: 1,
+            questionsIssued: 4,
+          });
+          // Six more would pass the ten-question session limit; five fit.
+          await expect(
+            ask(alice, session.sessionId, ctx, 'key-00000005', {
+              round: 2,
+              slots: 7,
+              replaces: null,
+            }),
+          ).rejects.toBeInstanceOf(QuestionRoundTakenError);
+          const two = await ask(alice, session.sessionId, ctx, 'key-00000006', {
+            round: 2,
+            slots: 5,
+            replaces: null,
+          });
+          expect(await issue(session.sessionId, two.job.jobId, 2, 5)).toBe('issued');
+          expect(await h.store.sessions.get(alice, session.sessionId)).toMatchObject({
+            questionRoundsUsed: 2,
+            questionsIssued: 9,
+          });
+        });
+
+        it('lets a new job take a round whose job ended without a set', async () => {
+          const { session } = await create(alice, 'session-0001');
+          const ctx = session.latestContext.contextRevisionId;
+          const one = { round: 1, slots: 5, replaces: null };
+          const first = await ask(alice, session.sessionId, ctx, 'key-00000001', one);
+          // Still running: it cannot be replaced.
+          await expect(
+            ask(alice, session.sessionId, ctx, 'key-00000002', {
+              ...one,
+              replaces: first.job.jobId,
+            }),
+          ).rejects.toBeInstanceOf(QuestionRoundTakenError);
+          await h.failJob(alice, first.job.jobId);
+          await expect(
+            ask(alice, session.sessionId, ctx, 'key-00000003', one),
+          ).rejects.toBeInstanceOf(QuestionRoundTakenError);
+          const second = await ask(alice, session.sessionId, ctx, 'key-00000004', {
+            ...one,
+            replaces: first.job.jobId,
+          });
+          // The failed job can no longer issue; the new holder can.
+          expect(await issue(session.sessionId, first.job.jobId, 1, 2)).toBe('stale');
+          expect(await issue(session.sessionId, second.job.jobId, 1, 2)).toBe('issued');
+        });
+      });
+
       it('deletes the session and what hangs off it', async () => {
         const { session } = await create(alice, 'session-0001');
         const set = {
@@ -917,6 +1105,7 @@ export function describeStoreContract(name: string, make: MakeHarness) {
           questions: [],
           sourceHash: 'a'.repeat(64),
           jobDescriptionHash: null,
+          jobId: null,
         };
         await h.store.sessions.saveQuestionSet(alice, set, NOW);
         expect(await h.store.sessions.delete(alice, session.sessionId)).toBe(true);
