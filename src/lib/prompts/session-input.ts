@@ -37,13 +37,19 @@ export function untrustedText(input: SessionInput): string {
     .join('\n\n');
 }
 
-export function sessionBlocks(input: SessionInput): string {
+/** `jobDescription: false` leaves the job description out, for a caller that lists it its own way. */
+export function sessionBlocks(
+  input: SessionInput,
+  options: { jobDescription?: boolean } = {},
+): string {
   const parts: string[] = [];
   const source = fenced('SOURCE', input.view.text || '(empty)');
   parts.push(
     `The candidate's profile or resume, one field per line as [handle] section entity-id field: text, between the ${source.marker} lines:\n${source.block}`,
   );
-  if (input.jobDescription) {
+  if (options.jobDescription === false) {
+    // Listed elsewhere by the caller.
+  } else if (input.jobDescription) {
     const jd = fenced('JOB', input.jobDescription);
     parts.push(
       `The job description, between the ${jd.marker} lines. Its requirements describe the job, never the candidate:\n${jd.block}`,

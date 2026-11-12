@@ -6,6 +6,7 @@ import {
   type ContentDoc,
   type EvidenceRef,
   type OperationResult,
+  type ProposalOperation,
   type ProposedChange,
   type SourceSnapshot,
   type Warning,
@@ -41,7 +42,8 @@ export type ImproveOperation = 'improve_profile' | 'improve_resume';
 export type ImproveResult = OperationResult<'improve_profile'>;
 
 export type ImproveContext = {
-  operation: ImproveOperation;
+  /** Tailoring reuses these rules for its field changes and additions. */
+  operation: ProposalOperation;
   proposalId: string;
   snapshot: SourceSnapshot;
   sourceHash: string;
@@ -50,6 +52,11 @@ export type ImproveContext = {
   /** Answered questions only: a skipped question is never a fact. */
   answers: AnswerInput[];
   sections: TargetSection[];
+  /**
+   * Tailoring only: a skill, tool or language the candidate's own text mentions elsewhere (a
+   * bullet naming Kafka) may be added too, cited to that text and confirmed by the user.
+   */
+  additionsFromSource?: boolean;
 };
 
 const MAX_CLAIMS = 10;
@@ -328,7 +335,17 @@ export function normalizeImprovement(
       continue;
     }
     const answer = ctx.answers.find((a) => mentions(a.value, name));
-    const ref = answer ? answerRef(answer, name) : null;
+    const sourceField = ctx.additionsFromSource
+      ? ctx.view.fields.find((f) => mentions(f.text, name))
+      : undefined;
+    const ref = answer
+      ? answerRef(answer, name)
+      : sourceField
+        ? groundCitation(ctx.view, ctx.snapshot, ctx.sourceHash, {
+            ref: sourceField.handle,
+            quote: name,
+          })
+        : null;
     if (!ref) {
       counts.blocked += 1;
       continue;
@@ -348,7 +365,9 @@ export function normalizeImprovement(
       type: 'add_entity',
       changeKind: 'factual_addition',
       addition,
-      reason: clean(raw.reason).slice(0, 500) || 'You named this in an answer.',
+      reason:
+        clean(raw.reason).slice(0, 500) ||
+        (answer ? 'You named this in an answer.' : 'Your profile mentions this.'),
       factIds: [],
       evidence: [ref],
       confirmation: { required: true, claims: [{ id: claimId(), text: claim }] },

@@ -10,6 +10,7 @@ import { createAnalyzeExecutor } from './analyze';
 import { createImproveExecutor } from './improve';
 import { createParseExecutor } from './parse';
 import { createQuestionsExecutor } from './questions';
+import { createTailorExecutor } from './tailor';
 import type { Executors } from './run';
 
 /*
@@ -58,6 +59,7 @@ export function createExecutors(deps: {
     generate_questions: createQuestionsExecutor(modelDeps),
     improve_profile: createImproveExecutor(modelDeps, 'improve_profile'),
     improve_resume: createImproveExecutor(modelDeps, 'improve_resume'),
+    tailor_resume: createTailorExecutor(modelDeps),
   };
 }
 

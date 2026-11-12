@@ -377,6 +377,24 @@ describe('POST /v1/jobs', () => {
     expect((await app.store.sessions.get(USER_A, session.sessionId))?.rounds).toEqual({});
   });
 
+  it('refuses tailoring a session that has no job description', async () => {
+    const session = await openSession(tokenA);
+    const response = await post(
+      {
+        ...improve('tailor-0001', session.sessionId, session.latestContext.contextRevisionId),
+        operation: 'tailor_resume',
+        input: { resumeName: 'Backend' },
+      },
+      tokenA,
+      'tailor-0001',
+    );
+    expect(response.statusCode).toBe(400);
+    expect(json(response.body)?.error).toMatchObject({
+      code: 'invalid_request',
+      issues: [{ path: 'operation' }],
+    });
+  });
+
   it('refuses an improve operation that does not fit the session source', async () => {
     const session = await openSession(tokenA);
     const response = await post(

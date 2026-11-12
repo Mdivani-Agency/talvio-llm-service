@@ -12,6 +12,7 @@ import {
 } from '../lib/model/client';
 import { ANALYZE_PACK } from '../lib/prompts/analyze-resume';
 import { IMPROVE_PACK } from '../lib/prompts/improve';
+import { REQUIREMENTS_PACK, TAILOR_PACK } from '../lib/prompts/tailor';
 import { QUESTIONS_PACK, type QuestionsOutput } from '../lib/prompts/generate-questions';
 import type { WorkMessage } from '../lib/queue';
 import type { AdmitJobInput } from '../lib/store';
@@ -20,6 +21,7 @@ import { JOB, TAILOR_SOURCE, analysisOutput, handle } from '../test/fixtures/ses
 import { createAnalyzeExecutor } from './analyze';
 import { createImproveExecutor } from './improve';
 import { createQuestionsExecutor } from './questions';
+import { createTailorExecutor } from './tailor';
 import { runJob } from './run';
 
 const OWNER = randomUUID();
@@ -79,7 +81,12 @@ describe('session operations', () => {
   });
 
   async function admit(
-    operation: 'analyze_resume' | 'generate_questions' | 'improve_profile' | 'improve_resume',
+    operation:
+      | 'analyze_resume'
+      | 'generate_questions'
+      | 'improve_profile'
+      | 'improve_resume'
+      | 'tailor_resume',
     input: Record<string, unknown>,
     questionRound?: AdmitJobInput['questionRound'],
   ) {
@@ -126,6 +133,7 @@ describe('session operations', () => {
           generate_questions: createQuestionsExecutor(deps),
           improve_profile: createImproveExecutor(deps, 'improve_profile'),
           improve_resume: createImproveExecutor(deps, 'improve_resume'),
+          tailor_resume: createTailorExecutor(deps),
         },
         now: () => START,
         random: () => 0,
@@ -342,6 +350,108 @@ describe('session operations', () => {
 
     it('is revoked when the operation does not fit the source, before any paid call', async () => {
       const jobId = await admit('improve_resume', { sections: [], targetRole: null });
+      expect(await run(jobId)).toBe('failed');
+      expect((await job(jobId))?.error?.code).toBe('revoked');
+      expect(guardrail.checked).toHaveLength(0);
+      expect(model.requests).toHaveLength(0);
+    });
+  });
+
+  describe('tailor_resume', () => {
+    const ACME = '1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f51';
+    const lines = careerView(TAILOR_SOURCE.document, { descriptionLines: true });
+
+    it('reads the requirements, composes a checked job-specific resume and saves nothing', async () => {
+      const jobId = await admit('tailor_resume', { resumeName: 'Initech backend' });
+      const before = await store.sessions.context(OWNER, sessionId, contextRevisionId);
+      model.responses.push(
+        reply({
+          requirements: [
+            { quote: '5+ years building backend services in Go', kind: 'required' },
+            { quote: 'Kafka or another event streaming platform', kind: 'preferred' },
+          ],
+        }),
+        reply({
+          coverage: [
+            {
+              requirement: 1,
+              status: 'supported',
+              evidence: [{ ref: handle(lines, 'legacy:tools:0', 'name'), quote: 'Kafka' }],
+              note: null,
+            },
+          ],
+          changes: [
+            {
+              entityId: ACME,
+              field: 'achievements',
+              value: null,
+              lines: [
+                {
+                  keep: null,
+                  text: 'Reduced checkout latency by 40%',
+                  from: [handle(lines, ACME, 'achievements.0')],
+                  style: null,
+                },
+              ],
+              reason: 'Leads with the result.',
+            },
+          ],
+          additions: [],
+          omissions: [],
+          summary: 'Leads with payments work.',
+        }),
+      );
+      expect(await run(jobId)).toBe('succeeded');
+
+      const envelope = resultEnvelopeSchemas.tailor_resume.parse((await job(jobId))!.result);
+      expect(envelope.versions).toMatchObject({
+        promptVersion: TAILOR_PACK.promptVersion,
+        modelId: TAILOR_PACK.modelId,
+      });
+      expect(envelope.result.requirements.map((r) => r.id)).toEqual(['req-1', 'req-2']);
+      expect(envelope.result.unsupportedRequirementIds).toEqual(['req-1']);
+      expect(envelope.result.proposal).toMatchObject({
+        applyTarget: { kind: 'new_resume', resumeType: 'job_specific' },
+      });
+      expect(envelope.result.proposal.document!.experience[0]!.achievements).toEqual([
+        'Reduced checkout latency by 40%',
+      ]);
+
+      // One guardrail check over everything untrusted, then Nova for requirements, Haiku to compose.
+      expect(guardrail.checked.join('\n')).toContain(JOB.text);
+      expect(model.requests.map((r) => r.modelId)).toEqual([
+        REQUIREMENTS_PACK.modelId,
+        TAILOR_PACK.modelId,
+      ]);
+      expect(JSON.stringify(model.requests)).not.toMatch(/nino@example\.com|Beridze|github\.com/);
+      // Both calls are in the job's spend, and the session's source is unchanged.
+      expect((await job(jobId))?.spendCommittedMicroUsd).toBeGreaterThan(0);
+      expect(await store.sessions.context(OWNER, sessionId, contextRevisionId)).toEqual(before);
+    });
+
+    it('is revoked without a job description, before any paid call', async () => {
+      const sourceHash = contentHash(TAILOR_SOURCE);
+      const { session } = await store.sessions.create({
+        ownerId: OWNER,
+        clientRequestId: 'session-00000002',
+        requestHash: 'h2',
+        purpose: 'improve',
+        context: {
+          source: TAILOR_SOURCE,
+          jobDescription: null,
+          sourceHash,
+          jobDescriptionHash: null,
+          contextHash: contentHash({
+            sourceHash,
+            jobDescriptionHash: null,
+            answerRevisionId: null,
+          }),
+        },
+        now: START,
+      });
+      sessionId = session.sessionId;
+      contextRevisionId = session.latestContext.contextRevisionId;
+      const jobId = await admit('tailor_resume', { resumeName: 'Backend' });
       expect(await run(jobId)).toBe('failed');
       expect((await job(jobId))?.error?.code).toBe('revoked');
       expect(guardrail.checked).toHaveLength(0);

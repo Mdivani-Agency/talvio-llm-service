@@ -6,7 +6,8 @@ import { guardrailCostMicroUsd, guardrailUnits, ratesFor } from './pricing';
  * Input bound. Nova 2 Lite has no CountTokens, so the bound is the request's UTF-8 size: every
  * token of a byte-level tokenizer covers at least one byte, and serialized JSON (the tool schema,
  * escapes) only adds bytes. A fixed allowance covers the chat template's special tokens. This is
- * an upper bound, never an estimate of the likely count, and it holds for any text.
+ * an upper bound, never an estimate of the likely count, and it holds for any text. Haiku 4.5
+ * (tailoring) uses the same bound: its tokenizer is byte-level too.
  */
 
 /** Tokens the provider may add around messages, the tool and the system prompt. */
