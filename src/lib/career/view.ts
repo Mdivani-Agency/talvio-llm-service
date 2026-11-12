@@ -1,12 +1,14 @@
 import {
   contentToPlainText,
   type CareerDocument,
+  type ContentDoc,
   type CareerSection,
   type EvidenceRef,
   type SourceSnapshot,
 } from '@talvio/llm-contracts';
 
 import { SourceText } from '../parse/ground';
+import { contentLines } from './content';
 
 /*
  * What a session operation shows the model of a profile or resume (design §9), and the way back
@@ -37,12 +39,28 @@ export type CareerView = {
   allText: string;
 };
 
-export function careerView(document: CareerDocument): CareerView {
+export type ViewOptions = {
+  /**
+   * List each paragraph and list item of a description as its own field (`description.0`, …)
+   * instead of one `description` field, so a proposal can keep or rewrite single lines.
+   */
+  descriptionLines?: boolean;
+};
+
+export function careerView(document: CareerDocument, options: ViewOptions = {}): CareerView {
   const fields: ViewField[] = [];
   const entities = new Map<string, CareerSection>();
   const add = (section: CareerSection, entityId: string | null, field: string, text: unknown) => {
     if (typeof text !== 'string' || text.trim() === '') return;
     fields.push({ handle: `F${fields.length + 1}`, section, entityId, field, text });
+  };
+  const description = (section: CareerSection, entityId: string, doc: ContentDoc | null) => {
+    if (!doc) return;
+    if (options.descriptionLines) {
+      contentLines(doc).forEach((line, i) => add(section, entityId, `description.${i}`, line.text));
+    } else {
+      add(section, entityId, 'description', contentToPlainText(doc));
+    }
   };
 
   add('person', null, 'role', document.person.role);
@@ -60,9 +78,7 @@ export function careerView(document: CareerDocument): CareerView {
     add('experience', entry.id, 'startDate', entry.startDate);
     add('experience', entry.id, 'endDate', entry.endDate);
     add('experience', entry.id, 'current', entry.current === null ? null : String(entry.current));
-    if (entry.description) {
-      add('experience', entry.id, 'description', contentToPlainText(entry.description));
-    }
+    description('experience', entry.id, entry.description);
     entry.achievements.forEach((text, i) => add('experience', entry.id, `achievements.${i}`, text));
     entry.responsibilities.forEach((text, i) =>
       add('experience', entry.id, `responsibilities.${i}`, text),
@@ -78,16 +94,12 @@ export function careerView(document: CareerDocument): CareerView {
     add('education', entry.id, 'startDate', entry.startDate);
     add('education', entry.id, 'endDate', entry.endDate);
     add('education', entry.id, 'current', entry.current === null ? null : String(entry.current));
-    if (entry.description) {
-      add('education', entry.id, 'description', contentToPlainText(entry.description));
-    }
+    description('education', entry.id, entry.description);
   }
   for (const entry of document.projects) {
     entities.set(entry.id, 'projects');
     add('projects', entry.id, 'name', entry.name);
-    if (entry.description) {
-      add('projects', entry.id, 'description', contentToPlainText(entry.description));
-    }
+    description('projects', entry.id, entry.description);
   }
   for (const section of ['skills', 'tools'] as const) {
     for (const item of document[section]) {

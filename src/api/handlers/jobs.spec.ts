@@ -367,6 +367,7 @@ describe('POST /v1/jobs', () => {
     for (const [body, key] of [
       [analysis, 'analysis-0001'],
       [questions('questions-0020', session.sessionId, contextId), 'questions-0020'],
+      [improve('improve-0020', session.sessionId, contextId), 'improve-0020'],
     ] as const) {
       const response = await post(body, tokenA, key);
       expect(response.statusCode).toBe(422);
@@ -374,6 +375,23 @@ describe('POST /v1/jobs', () => {
     }
     // Nothing was admitted and no round was taken.
     expect((await app.store.sessions.get(USER_A, session.sessionId))?.rounds).toEqual({});
+  });
+
+  it('refuses an improve operation that does not fit the session source', async () => {
+    const session = await openSession(tokenA);
+    const response = await post(
+      {
+        ...improve('improve-0030', session.sessionId, session.latestContext.contextRevisionId),
+        operation: 'improve_profile',
+      },
+      tokenA,
+      'improve-0030',
+    );
+    expect(response.statusCode).toBe(400);
+    expect(json(response.body)?.error).toMatchObject({
+      code: 'invalid_request',
+      issues: [{ path: 'operation' }],
+    });
   });
 });
 

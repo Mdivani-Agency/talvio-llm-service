@@ -1,6 +1,8 @@
 import {
+  ApplyTargetError,
   LIMITS,
   RETRYABLE_JOB_ERRORS,
+  applyTargetFor,
   createJobRequestSchema,
   idempotencyKeySchema,
   jobSchema,
@@ -14,6 +16,7 @@ import { QuotaExceededError } from '@lib/limits';
 import { callFits, maxUtf8Bytes, parseFits } from '@lib/model/preflight';
 import { ANALYZE_PACK, analysisMessage } from '@lib/prompts/analyze-resume';
 import { QUESTIONS_PACK, questionsMessage } from '@lib/prompts/generate-questions';
+import { IMPROVE_PACK, improveGuardText, improveMessage } from '@lib/prompts/improve';
 import { untrustedText } from '@lib/prompts/session-input';
 import { prepareSession } from '@lib/session-input';
 import {
@@ -148,6 +151,30 @@ async function checkAffordable(
           });
     const pack = request.operation === 'analyze_resume' ? ANALYZE_PACK : QUESTIONS_PACK;
     if (!callFits(pack, user, untrustedText(input).length, budgetMicroUsd)) {
+      throw new ApiError('budget_exceeded_preflight');
+    }
+    return;
+  }
+  if (request.operation === 'improve_profile' || request.operation === 'improve_resume') {
+    const context = await deps.store.sessions.context(
+      ownerId,
+      request.sessionId,
+      request.contextRevisionId,
+    );
+    if (!context) throw notFound();
+    try {
+      applyTargetFor(request.operation, context.source.source);
+    } catch (error) {
+      if (!(error instanceof ApplyTargetError)) throw error;
+      throw new ApiError('invalid_request', {
+        issues: [{ path: 'operation', message: 'Does not match the session source.' }],
+      });
+    }
+    const { input } = prepareSession(context, { descriptionLines: true });
+    const { sections, targetRole } = request.input;
+    const user = improveMessage({ ...input, sections, targetRole });
+    const guarded = improveGuardText(untrustedText(input), targetRole);
+    if (!callFits(IMPROVE_PACK, user, guarded.length, budgetMicroUsd)) {
       throw new ApiError('budget_exceeded_preflight');
     }
     return;

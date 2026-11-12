@@ -1,6 +1,6 @@
 import type { CreateJobRequest } from '@talvio/llm-contracts';
 
-import { careerView } from './career/view';
+import { careerView, type ViewOptions } from './career/view';
 import type { AnswerInput, SessionInput } from './prompts/session-input';
 import type { SessionContext } from './store';
 
@@ -19,7 +19,7 @@ export type PreparedSession = {
   askedTopics: { topicKey: string; status: 'answered' | 'skipped' | 'unanswered' }[];
 };
 
-export function prepareSession(ctx: SessionContext): PreparedSession {
+export function prepareSession(ctx: SessionContext, view: ViewOptions = {}): PreparedSession {
   const { revision } = ctx;
   const current = new Map(
     ctx.questionSets
@@ -70,7 +70,7 @@ export function prepareSession(ctx: SessionContext): PreparedSession {
 
   return {
     input: {
-      view: careerView(ctx.source.document),
+      view: careerView(ctx.source.document, view),
       jobDescription: ctx.jobDescription?.text ?? null,
       answers,
     },
