@@ -54,6 +54,9 @@ const STOPWORDS = new Set(
   ),
 );
 
+/** A letter of any script but Latin, or a Latin letter with a mark the word rules do not read. */
+const OTHER_SCRIPT = /[^\P{L}a-zA-Z]/u;
+
 const words = (text: string) => text.toLowerCase().match(/[a-z][a-z'-]*/g) ?? [];
 const stem = (word: string) => word.replace(/'s$/, '').replace(/(?:ing|ed|es|s|ly)$/, '') || word;
 
@@ -115,6 +118,10 @@ export function lineSupport(
   if (unsupported.length) return { status: 'blocked', unsupported };
   if (evidence.length) return { status: 'from_answers', evidence };
 
+  // Rules below read English words only. Text in another script, or a line with numbers (whose
+  // pairing with what they measure rules cannot follow), always goes to the user.
+  if (OTHER_SCRIPT.test(text) || OTHER_SCRIPT.test(original)) return { status: 'confirm' };
+  if (/\d/.test(text) || /\d/.test(original)) return { status: 'confirm' };
   const before = new Set(words(`${original}\n${nearby}`).map(stem));
   const added = words(text).filter((w) => !STOPWORDS.has(w) && !before.has(stem(w)));
   const lostPolarity = POLARITY.some((w) => contains(original, w) && !contains(text, w));

@@ -28,6 +28,25 @@ describe('lineSupport', () => {
     ).toEqual({ status: 'kept_words' });
   });
 
+  it('asks to confirm any rewrite of a line with numbers, since rules cannot pair them', () => {
+    expect(
+      lineSupport(
+        'Reduced latency by 10%',
+        { original: 'Reduced latency by 40% across 10 services' },
+        ctx,
+      ),
+    ).toEqual({ status: 'confirm' });
+  });
+
+  it('asks to confirm a rewrite in a script the word rules cannot read', () => {
+    expect(lineSupport('Руководил отделом', { original: 'Помогал отделу' }, ctx)).toEqual({
+      status: 'confirm',
+    });
+    expect(lineSupport('Équipe gérée', { original: 'Gérait équipe' }, ctx)).toEqual({
+      status: 'confirm',
+    });
+  });
+
   it('asks to confirm a fact moved in from elsewhere in the source', () => {
     expect(lineSupport('Built services in Go', { original: 'Built services' }, ctx)).toEqual({
       status: 'confirm',

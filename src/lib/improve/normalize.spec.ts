@@ -320,6 +320,8 @@ describe('normalizeImprovement', () => {
           id: 'claim-1',
           text: 'This full-time role overlaps another full-time role. Confirm the facts this change keeps.',
         },
+        // Its number makes the line a claim too.
+        { id: 'claim-2', text: 'Engineers managed: a team of 12' },
       ],
     });
   });
