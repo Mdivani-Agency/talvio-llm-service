@@ -136,9 +136,16 @@ export function paidJob(deps: ModelDeps, context: StepContext) {
     if (blocked) stop('input_policy_blocked');
   }
 
-  /** One forced-tool call plus at most one repair; returns output that passed the pack's schema. */
-  async function infer<T>(pack: PromptPack<T>, userText: string): Promise<T> {
-    const refs = { ...(ledger.inference ?? {}) };
+  /**
+   * One forced-tool call plus at most one repair; returns output that passed the pack's schema.
+   * A job with two calls gives each its own step, so each keeps its own entries and repair.
+   */
+  async function infer<T>(
+    pack: PromptPack<T>,
+    userText: string,
+    step: JobStage = 'inference',
+  ): Promise<T> {
+    const refs = { ...(ledger[step] ?? {}) };
     const messages: ModelMessage[] = [{ role: 'user', text: userText }];
     let repairs = Number(refs.repairs ?? 0);
     for (;;) {
@@ -161,9 +168,9 @@ export function paidJob(deps: ModelDeps, context: StepContext) {
       if (!plan) return stop('budget_exceeded');
       const entry = nextEntry(refs);
       refs[entry] = reserved(plan.boundMicroUsd);
-      await write('inference', refs);
+      await write(step, refs);
 
-      const response = await call('inference', () =>
+      const response = await call(step, () =>
         deps.model.converse({
           modelId: pack.modelId,
           system: pack.system,
@@ -180,7 +187,7 @@ export function paidJob(deps: ModelDeps, context: StepContext) {
       refs[entry] = settled(plan.boundMicroUsd, actual);
       if (response.requestId)
         refs[`request.${entry.slice('spend.'.length)}`] = response.requestId.slice(0, 128);
-      await write('inference', refs);
+      await write(step, refs);
       deps.logger.log('info', {
         event: 'model_called',
         jobId: job.jobId,

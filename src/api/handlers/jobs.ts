@@ -19,6 +19,7 @@ import { QUESTIONS_PACK, questionsMessage } from '@lib/prompts/generate-question
 import { IMPROVE_PACK, improveGuardText, improveMessage } from '@lib/prompts/improve';
 import { untrustedText } from '@lib/prompts/session-input';
 import { prepareSession } from '@lib/session-input';
+import { tailorFits } from '@lib/tailor/preflight';
 import {
   IdempotencyConflictError,
   InvalidCursorError,
@@ -175,6 +176,24 @@ async function checkAffordable(
     const user = improveMessage({ ...input, sections, targetRole });
     const guarded = improveGuardText(untrustedText(input), targetRole);
     if (!callFits(IMPROVE_PACK, user, guarded.length, budgetMicroUsd)) {
+      throw new ApiError('budget_exceeded_preflight');
+    }
+    return;
+  }
+  if (request.operation === 'tailor_resume') {
+    const context = await deps.store.sessions.context(
+      ownerId,
+      request.sessionId,
+      request.contextRevisionId,
+    );
+    if (!context) throw notFound();
+    if (!context.jobDescription) {
+      throw new ApiError('invalid_request', {
+        issues: [{ path: 'operation', message: 'The session has no job description.' }],
+      });
+    }
+    const { input } = prepareSession(context, { descriptionLines: true });
+    if (!tailorFits(input, budgetMicroUsd)) {
       throw new ApiError('budget_exceeded_preflight');
     }
     return;

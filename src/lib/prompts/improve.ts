@@ -28,51 +28,53 @@ export const IMPROVE_FIELDS = [
   'keyContributions',
 ] as const;
 
-export const improveOutputSchema = z.object({
-  changes: z
+/** One changed field: kept lines by handle and new lines with the handles they replace. */
+export const fieldChangeOutputSchema = z.object({
+  entityId: z.string().max(128).nullable().describe('Entity id as listed; null for person'),
+  field: z.enum(IMPROVE_FIELDS),
+  value: z
+    .string()
+    .max(5_000)
+    .nullable()
+    .describe('New text for role or tagline; null for list and description fields'),
+  lines: z
     .array(
       z.object({
-        entityId: z.string().max(128).nullable().describe('Entity id as listed; null for person'),
-        field: z.enum(IMPROVE_FIELDS),
-        value: z
+        keep: z
           .string()
-          .max(5_000)
+          .max(16)
           .nullable()
-          .describe('New text for role or tagline; null for list and description fields'),
-        lines: z
-          .array(
-            z.object({
-              keep: z
-                .string()
-                .max(16)
-                .nullable()
-                .describe('Handle of an original line kept word for word, e.g. F7'),
-              text: z.string().max(5_000).nullable().describe('New text; null when keeping'),
-              from: z
-                .array(z.string().max(16))
-                .max(10)
-                .describe('Handles of the original lines this new text replaces'),
-              style: z
-                .enum(['paragraph', 'bullet'])
-                .nullable()
-                .describe('Description lines only: paragraph or bullet'),
-            }),
-          )
-          .max(30)
-          .describe('The whole field in its new order: kept lines by handle, new lines as text'),
-        reason: z.string().max(500).describe('Why this change helps, shown to the candidate'),
+          .describe('Handle of an original line kept word for word, e.g. F7'),
+        text: z.string().max(5_000).nullable().describe('New text; null when keeping'),
+        from: z
+          .array(z.string().max(16))
+          .max(10)
+          .describe('Handles of the original lines this new text replaces'),
+        style: z
+          .enum(['paragraph', 'bullet'])
+          .nullable()
+          .describe('Description lines only: paragraph or bullet'),
       }),
     )
+    .max(30)
+    .describe('The whole field in its new order: kept lines by handle, new lines as text'),
+  reason: z.string().max(500).describe('Why this change helps, shown to the candidate'),
+});
+
+export const additionOutputSchema = (where: string) =>
+  z.object({
+    section: z.enum(['skills', 'tools', 'languages']),
+    name: z.string().max(300).describe(`Exactly as the candidate wrote it ${where}`),
+    reason: z.string().max(500),
+  });
+
+export const improveOutputSchema = z.object({
+  changes: z
+    .array(fieldChangeOutputSchema)
     .max(40)
     .describe('Only fields that change; an empty list is a valid answer'),
   additions: z
-    .array(
-      z.object({
-        section: z.enum(['skills', 'tools', 'languages']),
-        name: z.string().max(300).describe('Exactly as the candidate wrote it in an answer'),
-        reason: z.string().max(500),
-      }),
-    )
+    .array(additionOutputSchema('in an answer'))
     .max(10)
     .describe('Only items the candidate named in an answer'),
   summary: z.string().max(2_000).describe('One or two sentences on what the changes do'),

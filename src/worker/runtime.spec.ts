@@ -25,6 +25,7 @@ describe('createExecutors', () => {
       'generate_questions',
       'improve_profile',
       'improve_resume',
+      'tailor_resume',
     ]);
   });
 });

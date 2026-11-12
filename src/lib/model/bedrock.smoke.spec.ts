@@ -8,6 +8,7 @@ import { createAnalyzeExecutor } from '../../worker/analyze';
 import { createImproveExecutor } from '../../worker/improve';
 import { createParseExecutor } from '../../worker/parse';
 import { createQuestionsExecutor } from '../../worker/questions';
+import { createTailorExecutor } from '../../worker/tailor';
 import { contentHash } from '../hash';
 import { runJob } from '../../worker/run';
 import { createBedrockGuardrail, createBedrockModel } from './client';
@@ -21,7 +22,7 @@ import { spentMicroUsd } from './budget';
  *
  * It proves the pinned profile, the forced tool, the schema and ApplyGuardrail work from the
  * source Region, then runs the golden sets (parse_document; analyze_resume and generate_questions,
- * MDI-218) and checks metered cost per operation: every job under the cap and the p95 at or below
+ * MDI-218; improvement, MDI-219; tailoring, MDI-220) and checks metered cost per operation: every job under the cap and the p95 at or below
  * USD 0.04. It prints only ids, token counts and money, never resume text.
  */
 
@@ -102,7 +103,7 @@ suite('Bedrock smoke test', () => {
     expect(p95).toBeLessThanOrEqual(P95_TARGET);
   });
 
-  it('analyzes, asks questions and improves on the session golden set within the cap and the p95 target', async () => {
+  it('analyzes, asks questions, improves and tailors on the session golden set within the cap and the p95 target', async () => {
     const model = createBedrockModel(config!.BEDROCK_REGION);
     const guardrail = createBedrockGuardrail(
       config!.BEDROCK_REGION,
@@ -114,7 +115,8 @@ suite('Bedrock smoke test', () => {
       | 'analyze_resume'
       | 'generate_questions'
       | 'improve_profile'
-      | 'improve_resume';
+      | 'improve_resume'
+      | 'tailor_resume';
     const costs: Partial<Record<SessionOperation, number[]>> = {};
     for (const fixture of SESSION_GOLDEN) {
       const store = createMemoryStore();
@@ -125,6 +127,7 @@ suite('Bedrock smoke test', () => {
         generate_questions: createQuestionsExecutor(deps),
         improve_profile: createImproveExecutor(deps, 'improve_profile'),
         improve_resume: createImproveExecutor(deps, 'improve_resume'),
+        tailor_resume: createTailorExecutor(deps),
       };
       const now = new Date();
       const sourceHash = contentHash(fixture.source);
@@ -148,7 +151,10 @@ suite('Bedrock smoke test', () => {
       let analysisJobId: string | null = null;
       const improve =
         fixture.source.source.kind === 'profile' ? 'improve_profile' : 'improve_resume';
-      for (const operation of ['analyze_resume', 'generate_questions', improve] as const) {
+      const operations: SessionOperation[] = ['analyze_resume', 'generate_questions', improve];
+      // Tailoring needs a job description.
+      if (fixture.jobDescription) operations.push('tailor_resume');
+      for (const operation of operations) {
         const key = `smoke-${fixture.name}-${operation}-${now.getTime()}`;
         const { job } = await store.jobs.admit({
           ownerId: owner,
@@ -169,7 +175,9 @@ suite('Bedrock smoke test', () => {
                 ? { sections: [] }
                 : operation === 'generate_questions'
                   ? { analysisJobId, round: 1, maxQuestions: 5 }
-                  : { sections: [], targetRole: null },
+                  : operation === 'tailor_resume'
+                    ? { resumeName: `Smoke ${fixture.name}` }
+                    : { sections: [], targetRole: null },
           } as never,
           now,
           deadlineAt: new Date(now.getTime() + 600_000),

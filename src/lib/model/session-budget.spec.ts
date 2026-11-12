@@ -9,10 +9,18 @@ import { untrustedText, type SessionInput } from '../prompts/session-input';
 import { guardrailBound, planCall } from './budget';
 import { fixedBytes, type PromptPack } from './pack';
 import { callFits } from './preflight';
+import { tailorFits } from '../tailor/preflight';
+import {
+  REQUIREMENTS_PACK,
+  TAILOR_PACK,
+  requirementsMessage,
+  worstTailorMessage,
+} from '../prompts/tailor';
+import { ratesFor } from './pricing';
 
 /*
  * The cost side of MDI-218's and MDI-219's acceptance, checked offline: on the golden set the
- * worst case of one analysis, questions or improvement call (guardrail plus the full output
+ * worst case of one analysis, questions or improvement call, and of tailoring, (guardrail plus the full output
  * allocation) stays at or below the USD 0.04 p95 target, so typical inputs never fail on budget
  * and the USD 0.05 cap holds.
  * Metered cost against real Bedrock is measured by `yarn smoke:bedrock`.
@@ -57,6 +65,32 @@ describe.each(SESSION_GOLDEN)('golden fixture $name', ({ source, jobDescription 
     const text = improveGuardText(untrustedText(lines), targetRole);
     expect(callFits(IMPROVE_PACK, user, text.length, CAP)).toBe(true);
     expect(worstCase(IMPROVE_PACK, user, text)).toBeLessThanOrEqual(P95_TARGET);
+  });
+
+  // Tailoring is two calls and its worst-case input bound counts one token per byte, which for
+  // Haiku 4.5 is close to the cap. The gate is: the worst case always fits under the cap (no
+  // budget_exceeded on typical input), and a conservative estimate of the metered cost (three
+  // bytes per token, the full minimum output of each call) stays at or below the p95 target.
+  it('fits tailoring under the cap and its estimated cost within the p95 target', () => {
+    if (!jobDescription) return;
+    const lines: SessionInput = {
+      ...input,
+      view: careerView(source.document, { descriptionLines: true }),
+    };
+    expect(tailorFits(lines, CAP)).toBe(true);
+    const estimate = (pack: PromptPack<unknown>, user: string) => {
+      const rates = ratesFor(pack.modelId);
+      const inputTokens = Math.ceil((fixedBytes(pack) + Buffer.byteLength(user)) / 3);
+      return (
+        (inputTokens * rates.inputPerMillion + pack.outputTokens.min * rates.outputPerMillion) /
+        1_000_000
+      );
+    };
+    const total =
+      guardrailBound(untrustedText(lines).length) +
+      estimate(REQUIREMENTS_PACK, requirementsMessage(jobDescription.text)) +
+      estimate(TAILOR_PACK, worstTailorMessage(lines));
+    expect(total).toBeLessThanOrEqual(P95_TARGET);
   });
 
   it('fits questions within the p95 target at its worst case', () => {
