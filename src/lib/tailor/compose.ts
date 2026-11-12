@@ -47,6 +47,9 @@ export function groundRequirements(
   const seen = new Set<string>();
   const requirements: RequirementsOutput['requirements'] = [];
   let dropped = 0;
+  // Overlapping quotes could add up to more than the job description, which is the bound the
+  // composition call was planned with (worstTailorMessage); keep their total within it.
+  let bytesLeft = Buffer.byteLength(jobDescription);
   for (const requirement of output.requirements) {
     const ref = groundText(jobDescription, requirement.quote, {
       sourceKind: 'job_description',
@@ -60,6 +63,12 @@ export function groundRequirements(
     }
     const key = `${ref.start}:${ref.end}`;
     if (seen.has(key) || requirements.length >= MAX_REQUIREMENTS) continue;
+    const bytes = Buffer.byteLength(ref.excerpt);
+    if (bytes > bytesLeft) {
+      dropped += 1;
+      continue;
+    }
+    bytesLeft -= bytes;
     seen.add(key);
     requirements.push({ quote: ref.excerpt, kind: requirement.kind });
   }

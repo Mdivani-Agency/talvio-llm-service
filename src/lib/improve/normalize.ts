@@ -323,6 +323,24 @@ export function normalizeImprovement(
 
   // Additions: only what the candidate named in an answer, never already in the source.
   const added = new Set<string>();
+  // An entity id must not repeat one in the source, such as an addition accepted earlier.
+  const takenIds = new Set(
+    Object.values(document).flatMap((section) =>
+      Array.isArray(section)
+        ? section.flatMap((e: unknown) => {
+            const id = (e as { id?: unknown } | null)?.id;
+            return typeof id === 'string' ? [id] : [];
+          })
+        : [],
+    ),
+  );
+  const nextId = (section: string) => {
+    let n = 1;
+    while (takenIds.has(`added-${section}-${n}`)) n += 1;
+    const id = `added-${section}-${n}`;
+    takenIds.add(id);
+    return id;
+  };
   for (const raw of ctx.sections.length ? [] : output.additions) {
     const name = clean(raw.name).slice(0, 300);
     const existing =
@@ -351,7 +369,7 @@ export function normalizeImprovement(
       continue;
     }
     added.add(key);
-    const id = `added-${raw.section}-${added.size}`;
+    const id = nextId(raw.section);
     const addition =
       raw.section === 'languages'
         ? { section: raw.section, entity: { id, language: name, proficiency: null } }

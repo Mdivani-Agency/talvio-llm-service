@@ -61,6 +61,21 @@ describe('groundRequirements', () => {
       'experience leading a small team',
     ]);
   });
+
+  it('keeps overlapping quotes within the size of the job description', () => {
+    const grounded = groundRequirements(
+      {
+        requirements: [
+          { quote: 'Go and Rust', kind: 'required' },
+          { quote: 'and Rust experience', kind: 'required' },
+          { quote: 'experience', kind: 'preferred' },
+        ],
+      },
+      'Go and Rust experience',
+    );
+    expect(grounded.requirements.map((r) => r.quote)).toEqual(['Go and Rust', 'experience']);
+    expect(grounded.dropped).toBe(1);
+  });
 });
 
 describe('composeTailoring', () => {
@@ -168,6 +183,20 @@ describe('composeTailoring', () => {
     ]);
     expect(result.proposal.document!.tools.map((t) => t.name)).toEqual(['Kafka', 'Kubernetes']);
     expect(warnings.map((w) => w.code)).toContain('unsupported_changes_blocked');
+  });
+
+  it('gives an added entry an id the source does not already use', () => {
+    const earlier = structuredClone(source);
+    earlier.document.tools.push({ id: 'added-tools-1', name: 'Terraform' } as never);
+    const { result } = run(
+      output({ additions: [{ section: 'tools', name: 'Kubernetes', reason: 'The job uses it.' }] }),
+      { ...ctx, snapshot: earlier, view: careerView(earlier.document, { descriptionLines: true }) },
+    );
+    const ids = result.proposal.document!.tools.map((t) => t.id);
+    expect(ids).toEqual([...earlier.document.tools.map((t) => t.id), 'added-tools-2']);
+    expect(result.proposal.changes[0]).toMatchObject({
+      addition: { entity: { id: 'added-tools-2', name: 'Kubernetes' } },
+    });
   });
 
   it('lists every omitted entry with its original value and drops changes to it', () => {
