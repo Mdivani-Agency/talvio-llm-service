@@ -152,3 +152,19 @@ Plain text needs no upload: it is submitted as `{kind: 'text'}` (PDF text extrac
 ## Evaluation and release gates (MDI-223)
 
 `src/eval/` holds the evaluation set of design §14: 74 synthetic resumes across three source types, Georgian, sparse, conflicting and injected variants, and 20 job descriptions. It also holds the deterministic scorers and the release gates: extraction precision and recall per field and source type, zero injected or unsupported additions, full preservation, schema validity, cost and p95 latency per operation, and rated question usefulness. `yarn test` runs it with a scripted model; `yarn eval:bedrock` measures a release against Bedrock. See [docs/evaluation.md](docs/evaluation.md).
+
+## Metrics and operations (MDI-223)
+
+Metrics are CloudWatch embedded metric format lines on the log stream (`src/lib/log.ts`), namespace `Talvio/LLM`. Like log fields they are an allow-list: fixed names, and dimension values that must look like an enum member (anything else becomes `other`), so no id or text becomes a dimension. Every metric has `Stage`; totals exist per stage and per single dimension, and the full breakdown for dashboards.
+
+| Metric                                                                     | Dimensions                                                             | Emitted by                                        |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------- |
+| `JobFinished`, `JobDurationMs`, `JobCostMicroUsd`                          | Operation, Outcome                                                     | worker, when a job succeeds or fails              |
+| `JobRetried`, `JobStale`                                                   | Operation                                                              | worker                                            |
+| `ModelCalls`, `ModelInputTokens`, `ModelOutputTokens`, `ModelCostMicroUsd` | Operation                                                              | each model call                                   |
+| `GuardrailBlocked`, `ResultInvalid`                                        | Operation                                                              | input guardrail; contract check before publishing |
+| `QuotaRejected`                                                            | Kind (`jobs_per_day`, `active_jobs`, `daily_spend`, `account_ceiling`) | admission and owner retry                         |
+| `ReconcileDue`, `ReconcileExpired`, `ReconcileRequeued`, `ReconcileFailed` | none                                                                   | reconciler run                                    |
+| `DeadLetters`                                                              | Kind (`job`, `document`)                                               | DLQ handler                                       |
+
+Alarms and the dashboard live in talvio-terraform-iac `modules/llm`. What each alarm means and what to do is in [docs/runbook.md](docs/runbook.md).

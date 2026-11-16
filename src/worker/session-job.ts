@@ -83,6 +83,7 @@ export function publishSession<O extends Operation>(
       jobId: job.jobId,
       count: checked.error.issues.length,
     });
+    deps.logger.metric({ ResultInvalid: 1 }, { operation });
     return { kind: 'failed', code: 'validation_failed', spendMicroUsd };
   }
   return { kind: 'succeeded', result: checked.data, spendMicroUsd };

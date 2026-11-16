@@ -191,6 +191,7 @@ async function run(deps: ParseDeps, context: StepContext): Promise<StepOutcome> 
         jobId: jobRecord.jobId,
         count: checked.error.issues.length,
       });
+      deps.logger.metric({ ResultInvalid: 1 }, { operation: 'parse_document' });
       return { kind: 'failed', code: 'validation_failed', spendMicroUsd };
     }
     return { kind: 'succeeded', result: checked.data, spendMicroUsd };

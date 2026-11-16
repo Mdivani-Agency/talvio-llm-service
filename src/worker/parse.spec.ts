@@ -126,6 +126,15 @@ describe('parse_document executor', () => {
     // Logs carry ids and numbers, never resume text.
     expect(logs.join('\n')).not.toMatch(/Beridze|Acme|ledger/);
     expect(logs.join('\n')).toContain('"stopReason":"tool_use"');
+    const metrics = logs.map((line) => JSON.parse(line)).filter((line) => line._aws);
+    expect(metrics).toContainEqual(
+      expect.objectContaining({
+        Operation: 'parse_document',
+        ModelCalls: 1,
+        ModelInputTokens: 3_000,
+        ModelOutputTokens: 1_500,
+      }),
+    );
   });
 
   it('ends the job when the guardrail intervenes, before any model call', async () => {
@@ -136,6 +145,9 @@ describe('parse_document executor', () => {
       spendCommittedMicroUsd: 300,
     });
     expect(model.requests).toHaveLength(0);
+    expect(logs.map((line) => JSON.parse(line))).toContainEqual(
+      expect.objectContaining({ GuardrailBlocked: 1, Operation: 'parse_document' }),
+    );
   });
 
   it('never publishes a cut-off answer, and maps refusals', async () => {

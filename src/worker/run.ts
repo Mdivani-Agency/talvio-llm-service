@@ -99,7 +99,7 @@ export async function runJob(deps: RunDeps, message: WorkMessage): Promise<RunRe
   const { job } = claim;
   let lease = claim.lease;
 
-  const finish = (outcome: RunResult, step?: string): RunResult => {
+  const finish = (outcome: RunResult, step?: string, spendMicroUsd?: number): RunResult => {
     logger.log(outcome === 'stale' ? 'warn' : 'info', {
       event: 'run_finished',
       jobId,
@@ -107,6 +107,20 @@ export async function runJob(deps: RunDeps, message: WorkMessage): Promise<RunRe
       outcome,
       step,
     });
+    if (outcome === 'succeeded' || outcome === 'failed') {
+      logger.metric(
+        {
+          JobFinished: 1,
+          JobDurationMs: Math.max(0, now().getTime() - job.createdAt.getTime()),
+          JobCostMicroUsd: spendMicroUsd ?? job.spendCommittedMicroUsd,
+        },
+        { operation: job.operation, outcome },
+      );
+    } else if (outcome === 'retrying') {
+      logger.metric({ JobRetried: 1 }, { operation: job.operation });
+    } else if (outcome === 'stale') {
+      logger.metric({ JobStale: 1 }, { operation: job.operation });
+    }
     return outcome;
   };
 
@@ -161,22 +175,24 @@ export async function runJob(deps: RunDeps, message: WorkMessage): Promise<RunRe
 
   switch (outcome.kind) {
     case 'succeeded': {
+      const committed = spend(outcome.spendMicroUsd);
       const written = await store.execution.succeed(
         lease,
         outcome.result,
-        { spendCommittedMicroUsd: spend(outcome.spendMicroUsd) },
+        { spendCommittedMicroUsd: committed },
         now(),
       );
-      return finish(written === 'applied' ? 'succeeded' : 'stale');
+      return finish(written === 'applied' ? 'succeeded' : 'stale', undefined, committed);
     }
     case 'failed': {
+      const committed = spend(outcome.spendMicroUsd);
       const written = await store.execution.fail(
         lease,
         jobError(outcome.code, jobId),
-        { spendCommittedMicroUsd: spend(outcome.spendMicroUsd) },
+        { spendCommittedMicroUsd: committed },
         now(),
       );
-      return finish(written === 'applied' ? 'failed' : 'stale');
+      return finish(written === 'applied' ? 'failed' : 'stale', undefined, committed);
     }
     case 'waiting_external': {
       const written = await store.execution.waitExternal(lease, outcome.ref, now());
@@ -187,13 +203,14 @@ export async function runJob(deps: RunDeps, message: WorkMessage): Promise<RunRe
       const attempt = (job.exec.stepAttempts[outcome.step] ?? 0) + 1;
       if (attempt >= MAX_STEP_ATTEMPTS) {
         // Bounded: after the last attempt a transient failure becomes a visible one.
+        const committed = spend(undefined);
         const written = await store.execution.fail(
           lease,
           jobError(code, jobId),
-          { spendCommittedMicroUsd: spend(undefined) },
+          { spendCommittedMicroUsd: committed },
           now(),
         );
-        return finish(written === 'applied' ? 'failed' : 'stale', outcome.step);
+        return finish(written === 'applied' ? 'failed' : 'stale', outcome.step, committed);
       }
       const at = new Date(now().getTime() + retryDelayMs(attempt, deps.random));
       // Never wait past the deadline: the claim at the deadline expires the job.
