@@ -12,7 +12,7 @@ import {
 } from '@talvio/llm-contracts';
 
 /*
- * parse_document prompt pack, version 1 (design §9). Prompts are versioned code: any change to the
+ * parse_document prompt pack, version 2 (design §9; MDI-638 moved it to Claude Haiku 5.5). Prompts are versioned code: any change to the
  * system text, the tool schema or the model makes a new PROMPT_VERSION, so results can be traced
  * and an upgrade evaluated before it ships. Users cannot choose the model or change the policy.
  *
@@ -22,10 +22,13 @@ import {
  * the document does not contain without that value being dropped and reported.
  */
 
-export const PROMPT_VERSION = 'parse_document@1';
+export const PROMPT_VERSION = 'parse_document@2';
 
-/** Owner decision (22 Sep 2026): Nova 2 Lite through the US geographic profile, forced single-tool JSON. */
-export const PARSE_MODEL_ID = 'us.amazon.nova-2-lite-v1:0';
+/**
+ * Owner decision (16 Nov 2026, MDI-638): Claude Haiku 5.5 through the Claude API, forced
+ * single-tool JSON. Was Nova 2 Lite on Bedrock (parse_document@1).
+ */
+export const PARSE_MODEL_ID = 'claude-haiku-5-5';
 
 export const TOOL_NAME = 'record_resume';
 

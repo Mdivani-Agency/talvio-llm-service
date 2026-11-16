@@ -39,6 +39,22 @@ describe('loadConfig', () => {
     );
   });
 
+  it('takes the Claude API key by parameter name on deployed stages, never by value', () => {
+    expect(
+      loadConfig({ ...base, ANTHROPIC_API_KEY_PARAMETER: '/dev/llm/anthropic-api-key' })
+        .ANTHROPIC_API_KEY_PARAMETER,
+    ).toBe('/dev/llm/anthropic-api-key');
+    expect(() => loadConfig({ ...base, ANTHROPIC_API_KEY_PARAMETER: 'not a path' })).toThrow(
+      new ConfigError(['ANTHROPIC_API_KEY_PARAMETER']),
+    );
+    expect(() => loadConfig({ ...base, ANTHROPIC_API_KEY: 'sk-ant-1' })).toThrow(
+      new ConfigError(['ANTHROPIC_API_KEY']),
+    );
+    expect(loadConfig({ ...base, STAGE: 'test', ANTHROPIC_API_KEY: 'sk-ant-1' })).toMatchObject({
+      ANTHROPIC_API_KEY: 'sk-ant-1',
+    });
+  });
+
   it('requires a stage and a Supabase URL', () => {
     expect(() => loadConfig({})).toThrow(new ConfigError(['STAGE', 'SUPABASE_URL']));
   });

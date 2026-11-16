@@ -23,7 +23,7 @@ import { ratesFor } from './pricing';
  * worst case of one analysis, questions or improvement call, and of tailoring, (guardrail plus the full output
  * allocation) stays at or below the USD 0.04 p95 target, so typical inputs never fail on budget
  * and the USD 0.05 cap holds.
- * Metered cost against real Bedrock is measured by `yarn smoke:bedrock`.
+ * Metered cost against the real providers is measured by `yarn smoke:live`.
  */
 
 const CAP = 50_000;
@@ -67,8 +67,8 @@ describe.each(SESSION_GOLDEN)('golden fixture $name', ({ source, jobDescription 
     expect(worstCase(IMPROVE_PACK, user, text)).toBeLessThanOrEqual(P95_TARGET);
   });
 
-  // Tailoring is two calls and its worst-case input bound counts one token per byte, which for
-  // Haiku 4.5 is close to the cap. The gate is: the worst case always fits under the cap (no
+  // Tailoring is two calls and its worst-case input bound counts one token per byte, which came
+  // close to the cap on Haiku 4.5 (tailor_resume@1) and is the largest bound of any operation. The gate is: the worst case always fits under the cap (no
   // budget_exceeded on typical input), and a conservative estimate of the metered cost (three
   // bytes per token, the full minimum output of each call) stays at or below the p95 target.
   it('fits tailoring under the cap and its estimated cost within the p95 target', () => {
@@ -79,7 +79,7 @@ describe.each(SESSION_GOLDEN)('golden fixture $name', ({ source, jobDescription 
     };
     expect(tailorFits(lines, CAP)).toBe(true);
     const estimate = (pack: PromptPack<unknown>, user: string) => {
-      const rates = ratesFor(pack.modelId);
+      const rates = ratesFor(pack.modelId, 0);
       const inputTokens = Math.ceil((fixedBytes(pack) + Buffer.byteLength(user)) / 3);
       return (
         (inputTokens * rates.inputPerMillion + pack.outputTokens.min * rates.outputPerMillion) /

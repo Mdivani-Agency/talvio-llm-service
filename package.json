@@ -17,8 +17,8 @@
     "test:coverage": "jest --coverage",
     "test:contracts": "yarn workspace @talvio/llm-contracts test",
     "check": "yarn lint && yarn typecheck && yarn test && yarn test:contracts",
-    "smoke:bedrock": "BEDROCK_SMOKE=1 jest src/lib/model/bedrock.smoke.spec.ts --runInBand",
-    "eval:bedrock": "LLM_EVAL=1 jest src/eval/eval.live.spec.ts --runInBand"
+    "smoke:live": "LLM_SMOKE=1 jest src/lib/model/live.smoke.spec.ts --runInBand",
+    "eval:live": "LLM_EVAL=1 jest src/eval/eval.live.spec.ts --runInBand"
   },
   "author": "Giorgi Mdivani",
   "license": "ISC",
@@ -26,10 +26,12 @@
     "node": ">=22"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "1.8.0",
     "@aws-sdk/client-bedrock-runtime": "3.1149.0",
     "@aws-sdk/client-dynamodb": "3.1149.0",
     "@aws-sdk/client-s3": "3.1149.0",
     "@aws-sdk/client-sqs": "3.1149.0",
+    "@aws-sdk/client-ssm": "3.1149.0",
     "@aws-sdk/client-textract": "3.1149.0",
     "@aws-sdk/lib-dynamodb": "3.1149.0",
     "@aws-sdk/s3-request-presigner": "3.1149.0",

@@ -3,11 +3,11 @@ import { guardrailCostMicroUsd, guardrailUnits, ratesFor } from './pricing';
 /*
  * Spending bounds (design §11). Nothing is called before its worst case is known and fits.
  *
- * Input bound. Nova 2 Lite has no CountTokens, so the bound is the request's UTF-8 size: every
- * token of a byte-level tokenizer covers at least one byte, and serialized JSON (the tool schema,
- * escapes) only adds bytes. A fixed allowance covers the chat template's special tokens. This is
- * an upper bound, never an estimate of the likely count, and it holds for any text. Haiku 4.5
- * (tailoring) uses the same bound: its tokenizer is byte-level too.
+ * Input bound. The bound is the request's UTF-8 size: every token of a byte-level tokenizer covers
+ * at least one byte, and serialized JSON (the tool schema, escapes) only adds bytes. A fixed
+ * allowance covers the chat template's special tokens and the tool-use instructions the provider
+ * adds. This is an upper bound, never an estimate of the likely count, and it holds for any text
+ * and for every model in the price table, with no token-counting call before each request.
  */
 
 /** Tokens the provider may add around messages, the tool and the system prompt. */
@@ -55,8 +55,10 @@ export function planCall(
   output: { min: number; max: number },
   availableMicroUsd: number,
 ): CallPlan | null {
-  const rates = ratesFor(modelId);
-  const input = Math.ceil((inputTokenBound(requestBytes) * rates.inputPerMillion) / 1_000_000);
+  // Bounded on the rate card of the input's upper bound, so a long prompt is never under-counted.
+  const inputTokens = inputTokenBound(requestBytes);
+  const rates = ratesFor(modelId, inputTokens);
+  const input = Math.ceil((inputTokens * rates.inputPerMillion) / 1_000_000);
   const outputCost = (tokens: number) => Math.ceil((tokens * rates.outputPerMillion) / 1_000_000);
   const affordable = Math.floor(((availableMicroUsd - input) * 1_000_000) / rates.outputPerMillion);
   const maxTokens = Math.min(output.max, affordable);

@@ -39,7 +39,7 @@ import {
 
 /*
  * Runs the evaluation set through the real executors (MDI-223, design §14) with whichever model
- * and guardrail it is given: Bedrock for a release measurement (eval.live.spec.ts), a scripted
+ * and guardrail it is given: the real providers for a release measurement (eval.live.spec.ts), a scripted
  * model in CI (eval.spec.ts). Each job runs on its own in-memory store, exactly as a worker would
  * run it, and is scored on what it published.
  *

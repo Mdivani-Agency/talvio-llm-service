@@ -93,6 +93,17 @@ const configSchema = z
      */
     GUARDRAIL_ID: z.string().min(1).optional(),
     GUARDRAIL_VERSION: z.string().regex(/^\d+$/).optional(),
+    /**
+     * SSM SecureString holding the Claude API key, from SSM /<stage>/llm/anthropic-api-key-parameter
+     * (MDI-638). Only the name is configured; workers read the value at run time. Without it (or a
+     * local key), no operation that calls a Claude model is enabled.
+     */
+    ANTHROPIC_API_KEY_PARAMETER: z
+      .string()
+      .regex(/^\/[A-Za-z0-9_./-]+$/)
+      .optional(),
+    /** The key itself, for local runs, the smoke test and the release evaluation only. */
+    ANTHROPIC_API_KEY: z.string().min(1).optional(),
   })
   .refine(
     (config) => config.STORE_DRIVER !== 'memory' || ['local', 'test'].includes(config.STAGE),
@@ -149,6 +160,10 @@ const configSchema = z
   .refine((config) => Boolean(config.GUARDRAIL_ID) === Boolean(config.GUARDRAIL_VERSION), {
     message: 'GUARDRAIL_ID and GUARDRAIL_VERSION are set together',
     path: ['GUARDRAIL_ID'],
+  })
+  .refine((config) => !config.ANTHROPIC_API_KEY || ['local', 'test'].includes(config.STAGE), {
+    message: 'ANTHROPIC_API_KEY is only allowed on local and test stages',
+    path: ['ANTHROPIC_API_KEY'],
   })
   .refine((config) => !config.DYNAMODB_ENDPOINT || ['local', 'test'].includes(config.STAGE), {
     message: 'DYNAMODB_ENDPOINT is only allowed on local and test stages',

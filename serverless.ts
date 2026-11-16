@@ -73,7 +73,11 @@ const bucketEnv = (): Record<string, string> => {
   };
 };
 
-/** Bedrock source Region and the pinned input guardrail (Terraform modules/llm); none for local runs. */
+/**
+ * Bedrock source Region and the pinned input guardrail (Terraform modules/llm), and the name of the
+ * SSM SecureString holding the Claude API key (MDI-638). Only the name is set here: workers read
+ * the value at run time, and only the worker role may decrypt it. None for local runs.
+ */
 const modelEnv = (): Record<string, string> => {
   const stage = selectedStage();
   if (stage !== 'dev' && stage !== 'prod') return {};
@@ -81,6 +85,7 @@ const modelEnv = (): Record<string, string> => {
     BEDROCK_REGION: `\${ssm:/${stage}/llm/bedrock-region}`,
     GUARDRAIL_ID: `\${ssm:/${stage}/llm/guardrail-id}`,
     GUARDRAIL_VERSION: `\${ssm:/${stage}/llm/guardrail-version}`,
+    ANTHROPIC_API_KEY_PARAMETER: `/${stage}/llm/anthropic-api-key`,
   };
 };
 

@@ -7,16 +7,16 @@ import { PARSE_MODEL_ID } from './parse-document';
 import { sessionBlocks, UNTRUSTED_RULE, type SessionInput } from './session-input';
 
 /*
- * analyze_resume prompt pack, version 1 (design §§5, 9). One call returns findings and, with a job
+ * analyze_resume prompt pack, version 2 (Claude Haiku 5.5, MDI-638; design §§5, 9). One call returns findings and, with a job
  * description, its requirements and how the candidate's own text covers each. The model cites
  * field handles and quotes; the service grounds every citation and drops what it cannot find
  * (src/lib/analysis). Job requirements are quoted from the job description and can never be
  * evidence for the candidate.
  */
 
-export const ANALYZE_PROMPT_VERSION = 'analyze_resume@1';
+export const ANALYZE_PROMPT_VERSION = 'analyze_resume@2';
 
-/** Same model as parsing (owner decision, 22 Sep 2026): Nova 2 Lite, forced single-tool JSON. */
+/** Same model as parsing (owner decision, MDI-638): Claude Haiku 5.5, forced single-tool JSON. */
 export const ANALYZE_MODEL_ID = PARSE_MODEL_ID;
 
 export const ANALYZE_TOOL = 'record_analysis';

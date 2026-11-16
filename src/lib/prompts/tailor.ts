@@ -6,21 +6,22 @@ import { PARSE_MODEL_ID } from './parse-document';
 import { sessionBlocks, UNTRUSTED_RULE, type SessionInput } from './session-input';
 
 /*
- * tailor_resume prompt packs, version 1 (design §§3, 5, 9; MDI-220). Two bounded calls:
- * 1. Nova 2 Lite reads the job description and quotes its requirements.
- * 2. Haiku 4.5 maps the candidate's evidence to those requirements and composes the job-specific
+ * tailor_resume prompt packs, version 2 (design §§3, 5, 9; MDI-220, MDI-638). Two bounded calls,
+ * both on Claude Haiku 5.5 (version 1 used Nova 2 Lite, then Haiku 4.5, on Bedrock):
+ * 1. The first reads the job description and quotes its requirements.
+ * 2. The second maps the candidate's evidence to those requirements and composes the job-specific
  *    resume as changes to the source: changed fields as kept and new lines (as in improvement),
  *    skills to add and entries to leave out. It never re-emits the resume.
  * The service grounds every requirement and citation, checks every new line's facts, and builds
  * the composed document itself (src/lib/tailor).
  */
 
-export const REQUIREMENTS_PROMPT_VERSION = 'tailor_requirements@1';
+export const REQUIREMENTS_PROMPT_VERSION = 'tailor_requirements@2';
 export const REQUIREMENTS_TOOL = 'record_requirements';
 
-export const TAILOR_PROMPT_VERSION = 'tailor_resume@1';
-/** Owner decision (22 Sep 2026, MDI-220): mapping and composition is one Haiku 4.5 call. */
-export const TAILOR_MODEL_ID = 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
+export const TAILOR_PROMPT_VERSION = 'tailor_resume@2';
+/** Owner decisions (MDI-220, MDI-638): mapping and composition is one Claude Haiku 5.5 call. */
+export const TAILOR_MODEL_ID = 'claude-haiku-5-5';
 export const TAILOR_TOOL = 'record_tailored_resume';
 
 /** Most requirements read from one job description. */
