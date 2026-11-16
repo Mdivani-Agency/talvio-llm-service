@@ -43,10 +43,10 @@ Jobs are pinned at admission to `PIPELINE_RELEASE`. Each release has its own que
 
 ## The Claude API key
 
-Model calls go to the Claude API with a key stored in the SSM SecureString `/<stage>/llm/anthropic-api-key` (MDI-638). Terraform creates the parameter with a placeholder and never manages its value. Only the worker role can read and decrypt it.
+Model calls go to the Claude API with a key stored in the SSM SecureString `/<stage>/llm/anthropic-api-key` (MDI-638). An owner creates and fills in the parameter. Terraform only grants access: the worker role can read and decrypt it, the API role is denied it, and the key never appears in Terraform state.
 
-- **Setting or rotating it.** An owner writes the key straight into the parameter, from a shell or the console, never in a ticket, chat or file: `aws ssm put-parameter --name /<stage>/llm/anthropic-api-key --type SecureString --overwrite --value "$KEY"`. Running workers keep the key they read until their container is recycled. To switch at once, redeploy the service or update any worker function setting. Revoke the old key in the Claude Console only after the new one is in use.
-- **Missing or placeholder key.** Each model step is retried until the job's deadline and then expired. Look for `secret_unavailable` lines (error name only) from the workers.
+- **Setting or rotating it.** An owner writes the key straight into the parameter, never in a ticket, chat or file. Use the Parameter Store console (SecureString, KMS key `alias/talvio-llm-<stage>`) or a shell that keeps no history (talvio-terraform-iac README). Running workers keep the key they read until their container is recycled. To switch at once, redeploy the service or update any worker function setting. Revoke the old key in the Claude Console only after the new one is in use.
+- **Missing key.** Each model step is retried until the job's deadline and then expired. Look for `secret_unavailable` lines (error name only) from the workers.
 - **Rejected key** (revoked, wrong workspace, no credit). The call fails with `ProviderRejectedError` and the job ends with `dependency_unavailable`, which the owner can retry. Look for `provider_rejected` lines.
 
 ## Replays and retries

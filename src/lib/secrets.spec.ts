@@ -1,6 +1,6 @@
 import type { SSMClient } from '@aws-sdk/client-ssm';
 
-import { PLACEHOLDER, SecretUnavailableError, ssmSecret } from './secrets';
+import { SecretUnavailableError, ssmSecret } from './secrets';
 
 function fake(respond: () => unknown) {
   const sent: Record<string, unknown>[] = [];
@@ -20,8 +20,8 @@ describe('ssmSecret', () => {
     expect(sent).toEqual([{ Name: '/dev/llm/anthropic-api-key', WithDecryption: true }]);
   });
 
-  it('refuses the placeholder Terraform seeds and an empty value', async () => {
-    for (const Value of [PLACEHOLDER, '', undefined]) {
+  it('refuses an empty or missing value', async () => {
+    for (const Value of ['', '  ', undefined]) {
       const { client } = fake(() => ({ Parameter: { Value } }));
       await expect(ssmSecret('/dev/x', client)()).rejects.toBeInstanceOf(SecretUnavailableError);
     }
