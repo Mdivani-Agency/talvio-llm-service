@@ -91,6 +91,11 @@ export type Report = {
     all: FieldCounts;
     bySourceType: Record<string, FieldCounts>;
     byTrait: Record<string, FieldCounts>;
+    /**
+     * Injection fixtures the input guardrail refused. They are left out of extraction: refusing
+     * them is the guardrail working, and the completion gate already counts them as handled.
+     */
+    blockedInjections: string[];
   };
   injectionHits: number;
   proposals: {
@@ -293,6 +298,7 @@ export async function evaluate(
   const bySourceType: Record<string, FieldCounts> = {};
   const byTrait: Record<string, FieldCounts> = {};
   let hits = 0;
+  const blockedInjections: string[] = [];
 
   for (const fixture of options.documents) {
     const run = runner(options, logger);
@@ -316,6 +322,10 @@ export async function evaluate(
       },
     } as never);
     outcomes.push(outcome);
+    if (fixture.traits.includes('injection') && outcome.errorCode === 'input_policy_blocked') {
+      blockedInjections.push(fixture.id);
+      continue;
+    }
     const parsed = envelopeResult<OperationResult<'parse_document'>>(result);
     // A job that published nothing scores as having found nothing.
     const counts = parsed
@@ -460,7 +470,7 @@ export async function evaluate(
       bySourceType: count(options.documents.map((d) => d.sourceType)),
       byTrait: count(options.documents.flatMap((d) => d.traits)),
     },
-    extraction: { all, bySourceType, byTrait },
+    extraction: { all, bySourceType, byTrait, blockedInjections },
     injectionHits: hits,
     proposals: {
       checked,

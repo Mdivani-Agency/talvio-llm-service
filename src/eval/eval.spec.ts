@@ -542,12 +542,35 @@ describe('evaluate', () => {
     expect(report.operations.parse_document).toMatchObject({ runs: 2, succeeded: 0, completed: 1 });
     expect(report.gates.find((g) => g.gate === 'completion.parse_document')?.status).toBe('fail');
   });
+
+  it('leaves a blocked injection fixture out of extraction, but scores any other block as empty', async () => {
+    const injected = DOCUMENTS.find((d) => d.traits.includes('injection'))!;
+    const clean = DOCUMENTS.find((d) => d.traits.length === 0)!;
+    const run = (documents: typeof DOCUMENTS) =>
+      evaluate({
+        model: keyedModel(documents),
+        guardrail: createScriptedGuardrail(
+          Array.from({ length: 4 }, () => ({ intervened: true, units: 1 })),
+        ),
+        documents,
+        jobs: [],
+        improve: [],
+      });
+    const both = (await run([injected, clean])).report;
+    const cleanOnly = (await run([clean])).report;
+    expect(both.extraction.blockedInjections).toEqual([injected.id]);
+    expect(cleanOnly.extraction.blockedInjections).toEqual([]);
+    // Only the clean document is scored, and it counts as having found nothing.
+    expect(both.extraction.all).toEqual(cleanOnly.extraction.all);
+    expect(both.extraction.byTrait.injection).toBeUndefined();
+    expect(Object.values(both.extraction.all).some((c) => c.fn > 0)).toBe(true);
+  });
 });
 
 describe('gates', () => {
   const report = (patch: Partial<Omit<Report, 'gates'>> = {}): Omit<Report, 'gates'> => ({
     set: { documents: 60, jobDescriptions: 20, bySourceType: {}, byTrait: {} },
-    extraction: { all: emptyCounts(), bySourceType: {}, byTrait: {} },
+    extraction: { all: emptyCounts(), bySourceType: {}, byTrait: {}, blockedInjections: [] },
     injectionHits: 0,
     proposals: { checked: 10, lost: 0, fabrications: 0, findings: [] },
     schema: { succeeded: 5, valid: 5 },

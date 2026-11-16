@@ -64,6 +64,10 @@ that no fixture content reaches the report or the logs.
 | p95 latency                                  | parse and questions ≤ 30 s; analysis, improvement and tailoring ≤ 90 s     |
 | Useful questions                             | ≥ 90% of the rated questions; `pending` until every question is rated      |
 
+An injection fixture that the input guardrail blocked is left out of the precision and recall
+counts, because refusing it is the guardrail working. The report lists it in
+`extraction.blockedInjections`. A block on any other fixture still scores as an empty result.
+
 A `pending` gate blocks a release the same way a failed gate does.
 
 ## Running it
