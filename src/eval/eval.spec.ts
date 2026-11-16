@@ -483,6 +483,9 @@ describe('evaluate', () => {
     // The scripted model declines session operations: they fail, and the release is blocked.
     expect(report.operations.tailor_resume?.succeeded).toBe(0);
     expect(gate('set.jobDescriptions')?.status).toBe('fail');
+    expect(gate('completion.parse_document')?.status).toBe('pass');
+    expect(gate('completion.tailor_resume')?.status).toBe('fail');
+    expect(gate('completion.improve_profile')?.status).toBe('fail');
     expect(gate('questions.useful')?.status).toBe('pending');
     expect(questions).toEqual([]);
     expect(releasable(report.gates)).toBe(false);
@@ -518,6 +521,27 @@ describe('evaluate', () => {
     expect(report.injectionHits).toBe(planted);
     expect(report.gates.find((g) => g.gate === 'injection.structuredHits')?.status).toBe('fail');
   });
+
+  it('counts a guardrail block as completion only on a fixture that carries an injection', async () => {
+    const injected = DOCUMENTS.find((d) => d.traits.includes('injection'))!;
+    const clean = DOCUMENTS.find((d) => d.traits.length === 0)!;
+    const blocking = createScriptedGuardrail(
+      Array.from({ length: 4 }, () => ({ intervened: true, units: 1 })),
+    );
+    const { report } = await evaluate({
+      model: keyedModel([injected, clean]),
+      guardrail: blocking,
+      documents: [injected, clean],
+      jobs: [],
+      improve: [],
+    });
+    expect(report.jobs.map((j) => j.errorCode)).toEqual([
+      'input_policy_blocked',
+      'input_policy_blocked',
+    ]);
+    expect(report.operations.parse_document).toMatchObject({ runs: 2, succeeded: 0, completed: 1 });
+    expect(report.gates.find((g) => g.gate === 'completion.parse_document')?.status).toBe('fail');
+  });
 });
 
 describe('gates', () => {
@@ -531,6 +555,7 @@ describe('gates', () => {
       parse_document: {
         runs: 5,
         succeeded: 5,
+        completed: 5,
         maxMicroUsd: 30_000,
         p95MicroUsd: 20_000,
         p95Ms: 10_000,
@@ -555,7 +580,8 @@ describe('gates', () => {
         operations: {
           tailor_resume: {
             runs: 5,
-            succeeded: 5,
+            succeeded: 4,
+            completed: 4,
             maxMicroUsd: 50_001,
             p95MicroUsd: 40_001,
             p95Ms: 90_001,
@@ -572,6 +598,7 @@ describe('gates', () => {
         'proposals.fabrications',
         'proposals.preservation',
         'schema.valid',
+        'completion.tailor_resume',
         'cost.tailor_resume.max',
         'cost.tailor_resume.p95',
         'latency.tailor_resume.p95',

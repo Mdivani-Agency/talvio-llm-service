@@ -71,6 +71,8 @@ export type JobOutcome = {
 export type OperationStats = {
   runs: number;
   succeeded: number;
+  /** Succeeded, or refused by the input guardrail on a fixture that carries an injection. */
+  completed: number;
   maxMicroUsd: number;
   p95MicroUsd: number;
   p95Ms: number;
@@ -374,7 +376,8 @@ export async function evaluate(
     const set = envelopeResult<OperationResult<'generate_questions'>>(asked.result);
     for (const question of set?.questions ?? []) {
       questions.push({
-        key: `${job.id}/${question.topicKey}`,
+        // Bound to the question's text, so a rating never carries over to a different question.
+        key: `${job.id}/${question.topicKey}/${contentHash({ prompt: question.prompt, reason: question.reason }).slice(0, 12)}`,
         fixtureId: job.id,
         prompt: question.prompt,
         reason: question.reason,
@@ -403,11 +406,17 @@ export async function evaluate(
     scoreProposal(`${persona.id}-improve`, ids.source, improved.result, []);
   }
 
+  // A blocked injection is the guardrail working; any other failure counts against completion.
+  const injected = new Set([
+    ...options.documents.filter((d) => d.traits.includes('injection')).map((d) => d.id),
+    ...options.jobs.filter((j) => j.traits.includes('injection')).map((j) => j.id),
+  ]);
   const operations: Record<string, OperationStats> = {};
   for (const outcome of outcomes) {
     const stats = (operations[outcome.operation] ??= {
       runs: 0,
       succeeded: 0,
+      completed: 0,
       maxMicroUsd: 0,
       p95MicroUsd: 0,
       p95Ms: 0,
@@ -416,6 +425,12 @@ export async function evaluate(
     });
     stats.runs += 1;
     if (outcome.status === 'succeeded') stats.succeeded += 1;
+    if (
+      outcome.status === 'succeeded' ||
+      (injected.has(outcome.fixtureId) && outcome.errorCode === 'input_policy_blocked')
+    ) {
+      stats.completed += 1;
+    }
     stats.maxMicroUsd = Math.max(stats.maxMicroUsd, outcome.costMicroUsd);
     stats.inputTokens += outcome.inputTokens;
     stats.outputTokens += outcome.outputTokens;
