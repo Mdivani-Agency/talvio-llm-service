@@ -192,9 +192,21 @@ describe('parse_document executor', () => {
   });
 
   it('fails without retrying when the provider refuses the request itself', async () => {
-    model.responses.push(new ProviderRejectedError());
+    model.responses.push(
+      new ProviderRejectedError({ status: 401, code: 'authentication_error', requestId: 'req_1' }),
+    );
     expect(await run()).toBe('failed');
     expect((await job())?.error?.code).toBe('dependency_unavailable');
+    // The rejection is logged with its status, code and request id, so an operator can tell a
+    // bad key from a bad request without the provider's message.
+    expect(logs.map((line) => JSON.parse(line))).toContainEqual(
+      expect.objectContaining({
+        event: 'provider_rejected',
+        status: 401,
+        code: 'authentication_error',
+        requestId: 'req_1',
+      }),
+    );
   });
 
   it('refuses a call that cannot fit what is left of the cap', async () => {

@@ -83,7 +83,15 @@ export function paidJob(deps: ModelDeps, context: StepContext) {
     } catch (error) {
       if (error instanceof ProviderUnavailableError) throw new TransientError(step);
       if (error instanceof ProviderRejectedError || error instanceof UnpricedModelError) {
-        deps.logger.log('error', { event: 'provider_rejected', jobId: job.jobId, step });
+        const detail = error instanceof ProviderRejectedError ? error.detail : {};
+        deps.logger.log('error', {
+          event: 'provider_rejected',
+          jobId: job.jobId,
+          step,
+          status: detail.status,
+          code: detail.code ?? (error instanceof UnpricedModelError ? 'unpriced_model' : undefined),
+          requestId: detail.requestId,
+        });
         return stop('dependency_unavailable');
       }
       throw error;

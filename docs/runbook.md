@@ -47,7 +47,7 @@ Model calls go to the Claude API with a key stored in the SSM SecureString `/<st
 
 - **Setting or rotating it.** An owner writes the key straight into the parameter, never in a ticket, chat or file. Use the Parameter Store console (SecureString, KMS key `alias/talvio-llm-<stage>`) or a shell that keeps no history (talvio-terraform-iac README). Running workers keep the key they read until their container is recycled. To switch at once, redeploy the service or update any worker function setting. Revoke the old key in the Claude Console only after the new one is in use.
 - **Missing key.** Each model step is retried until the job's deadline and then expired. Look for `secret_unavailable` lines (error name only) from the workers.
-- **Rejected key** (revoked, wrong workspace, no credit). The call fails with `ProviderRejectedError` and the job ends with `dependency_unavailable`, which the owner can retry. Look for `provider_rejected` lines.
+- **Rejected key** (revoked, wrong workspace, no credit). The call fails with `ProviderRejectedError` and the job ends with `dependency_unavailable`, which the owner can retry. Look for `provider_rejected` lines: `status` 401 or `code` `authentication_error` is a bad key, `billing_error` means the account has no credit, and 400 `invalid_request_error` is a request the API refused (quote its `requestId` to Anthropic support).
 
 ## Replays and retries
 
