@@ -161,6 +161,9 @@ describe('POST /v1/jobs', () => {
     expect(json(refused.body)).toMatchObject({
       error: { code: 'quota_exceeded', retryable: true },
     });
+    expect(app.logs.map((line) => JSON.parse(line))).toContainEqual(
+      expect.objectContaining({ QuotaRejected: 1, Kind: 'active_jobs' }),
+    );
 
     // A replay of an admitted job costs nothing, so it works at the limit.
     const replay = await post(parseRequest(keys[0]!), tokenA, keys[0]);

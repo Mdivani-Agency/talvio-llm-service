@@ -13,6 +13,7 @@ import {
 import { ApiError, notFound } from '@lib/errors';
 import { contentHash } from '@lib/hash';
 import { QuotaExceededError } from '@lib/limits';
+import type { Logger } from '@lib/log';
 import { callFits, maxUtf8Bytes, parseFits } from '@lib/model/preflight';
 import { ANALYZE_PACK, analysisMessage } from '@lib/prompts/analyze-resume';
 import { QUESTIONS_PACK, questionsMessage } from '@lib/prompts/generate-questions';
@@ -249,8 +250,10 @@ async function takeRound(
 }
 
 /** A refused limit becomes the contract's retryable quota error; anything else passes through. */
-function asQuotaError(error: unknown): unknown {
-  return error instanceof QuotaExceededError ? new ApiError('quota_exceeded') : error;
+function asQuotaError(error: unknown, logger: Logger): unknown {
+  if (!(error instanceof QuotaExceededError)) return error;
+  logger.metric({ QuotaRejected: 1 }, { kind: error.kind });
+  return new ApiError('quota_exceeded');
 }
 
 export const createJob: RouteHandler = async (request, deps) => {
@@ -324,7 +327,7 @@ export const createJob: RouteHandler = async (request, deps) => {
     if (error instanceof QuestionRoundTakenError) {
       throw roundTaken();
     }
-    throw asQuotaError(error);
+    throw asQuotaError(error, deps.logger);
   }
 };
 
@@ -383,7 +386,7 @@ export const retryJob: RouteHandler = async (request, deps) => {
   }
   const retried = await deps.store.jobs
     .retry(ownerId, jobId, request.now)
-    .catch((error) => Promise.reject(asQuotaError(error)));
+    .catch((error) => Promise.reject(asQuotaError(error, deps.logger)));
   if (!retried) {
     throw notFound();
   }

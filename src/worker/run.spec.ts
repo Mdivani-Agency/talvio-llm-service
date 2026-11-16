@@ -77,6 +77,16 @@ describe('runJob', () => {
     // A second delivery of the same message finds the job finished and does nothing.
     expect(await runJob(deps(executor), message())).toBe('skipped');
     expect(executor).toHaveBeenCalledTimes(1);
+    const metrics = logs.map((line) => JSON.parse(line)).filter((line) => line._aws);
+    expect(metrics).toEqual([
+      expect.objectContaining({
+        Operation: 'parse_document',
+        Outcome: 'succeeded',
+        JobFinished: 1,
+        JobCostMicroUsd: 12_000,
+        JobDurationMs: expect.any(Number),
+      }),
+    ]);
   });
 
   it('fails a job at once when this release has no executor for its operation', async () => {
@@ -123,6 +133,9 @@ describe('runJob', () => {
       error: { code: 'dependency_unavailable', retryable: true },
       spendReservedMicroUsd: 0,
     });
+    const metrics = logs.map((line) => JSON.parse(line)).filter((line) => line._aws);
+    expect(metrics.filter((line) => line.JobRetried === 1)).toHaveLength(MAX_STEP_ATTEMPTS - 1);
+    expect(metrics.filter((line) => line.Outcome === 'failed')).toHaveLength(1);
   });
 
   it('treats an unexpected error as transient and never stores or logs its message', async () => {

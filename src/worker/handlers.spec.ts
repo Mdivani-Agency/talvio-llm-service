@@ -221,7 +221,12 @@ describe('background handlers', () => {
     it('expires a job past its deadline and frees its slot', async () => {
       const { job } = await admit('key-00000001');
       tick(11 * 60_000);
-      expect(await reconcile()).toMatchObject({ expired: 1 });
+      const lines: string[] = [];
+      const counted = createLogger('error', (line) => lines.push(line));
+      expect(await createReconciler({ store, logger: counted, now })()).toMatchObject({
+        expired: 1,
+      });
+      expect(JSON.parse(lines[0]!)).toMatchObject({ ReconcileDue: 1, ReconcileExpired: 1 });
       expect(await store.jobs.get(OWNER, job.jobId)).toMatchObject({
         status: 'expired',
         error: { code: 'deadline_exceeded' },
@@ -233,8 +238,16 @@ describe('background handlers', () => {
   describe('dead letters', () => {
     it('ends the job visibly, retryable by its owner, and ignores unreadable messages', async () => {
       const { job } = await admit('key-00000001');
-      const handle = createDeadLetterHandler({ store, logger, now });
+      const lines: string[] = [];
+      const handle = createDeadLetterHandler({
+        store,
+        logger: createLogger('error', (line) => lines.push(line)),
+        now,
+      });
       expect(await handle(sqs('garbage', body(job.jobId)))).toEqual({ batchItemFailures: [] });
+      expect(lines.map((line) => JSON.parse(line))).toEqual([
+        expect.objectContaining({ DeadLetters: 1, Kind: 'job' }),
+      ]);
       expect(await store.jobs.get(OWNER, job.jobId)).toMatchObject({
         status: 'failed',
         error: { code: 'internal_error', retryable: true },

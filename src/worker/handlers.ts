@@ -164,6 +164,12 @@ export function createReconciler(deps: { store: Store; logger: Logger } & Clock)
       count: due.length,
       outcome: JSON.stringify(counts),
     });
+    deps.logger.metric({
+      ReconcileDue: due.length,
+      ReconcileExpired: counts.expired ?? 0,
+      ReconcileRequeued: counts.requeued ?? 0,
+      ReconcileFailed: counts.failed ?? 0,
+    });
     return counts;
   };
 }
@@ -202,6 +208,7 @@ export function createDeadLetterHandler(deps: { store: Store; logger: Logger } &
             now(),
           );
           deps.logger.log('warn', { event: 'dead_letter', outcome: 'document' });
+          deps.logger.metric({ DeadLetters: 1 }, { kind: 'document' });
           continue;
         }
         const result = await deps.store.execution.abandon(
@@ -215,6 +222,7 @@ export function createDeadLetterHandler(deps: { store: Store; logger: Logger } &
           jobId: message.jobId,
           outcome: result,
         });
+        deps.logger.metric({ DeadLetters: 1 }, { kind: 'job' });
       } catch {
         batchItemFailures.push({ itemIdentifier: record.messageId });
       }

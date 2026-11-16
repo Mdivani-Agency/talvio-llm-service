@@ -42,7 +42,7 @@ function build(): Handler {
     return createApp({
       store,
       blobs: createBlobs(config),
-      logger: createLogger(config.LOG_LEVEL),
+      logger: createLogger(config.LOG_LEVEL, undefined, { stage: config.STAGE }),
       maxBodyBytes: config.MAX_BODY_BYTES,
       pipelineReleaseId: config.PIPELINE_RELEASE,
       dispatch: (event) =>

@@ -75,7 +75,7 @@ export function createRuntime(): Runtime {
   const config = loadConfig();
   const store = createStore(config);
   const blobs = createBlobs(config);
-  const logger = createLogger(config.LOG_LEVEL);
+  const logger = createLogger(config.LOG_LEVEL, undefined, { stage: config.STAGE });
   return {
     config,
     store,

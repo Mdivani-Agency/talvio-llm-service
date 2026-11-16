@@ -133,7 +133,10 @@ export function paidJob(deps: ModelDeps, context: StepContext) {
       outcome: blocked ? 'blocked' : 'passed',
       count: units,
     });
-    if (blocked) stop('input_policy_blocked');
+    if (blocked) {
+      deps.logger.metric({ GuardrailBlocked: 1 }, { operation: job.operation });
+      stop('input_policy_blocked');
+    }
   }
 
   /**
@@ -199,6 +202,15 @@ export function paidJob(deps: ModelDeps, context: StepContext) {
         costMicroUsd: actual,
         requestId: response.requestId ?? undefined,
       });
+      deps.logger.metric(
+        {
+          ModelCalls: 1,
+          ModelInputTokens: response.usage?.inputTokens,
+          ModelOutputTokens: response.usage?.outputTokens,
+          ModelCostMicroUsd: actual,
+        },
+        { operation: job.operation },
+      );
 
       // A cut-off answer is never published as if complete.
       if (response.stopReason === 'max_tokens') return stop('output_truncated');
