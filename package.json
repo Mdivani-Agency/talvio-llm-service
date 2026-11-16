@@ -17,7 +17,8 @@
     "test:coverage": "jest --coverage",
     "test:contracts": "yarn workspace @talvio/llm-contracts test",
     "check": "yarn lint && yarn typecheck && yarn test && yarn test:contracts",
-    "smoke:bedrock": "BEDROCK_SMOKE=1 jest src/lib/model/bedrock.smoke.spec.ts --runInBand"
+    "smoke:bedrock": "BEDROCK_SMOKE=1 jest src/lib/model/bedrock.smoke.spec.ts --runInBand",
+    "eval:bedrock": "LLM_EVAL=1 jest src/eval/eval.live.spec.ts --runInBand"
   },
   "author": "Giorgi Mdivani",
   "license": "ISC",

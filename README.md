@@ -16,6 +16,7 @@ Talvio's AI orchestration service: an authenticated async job API at `https://ap
 | `src/lib/auth.ts`                     | Supabase JWT verification                                                                                                                        |
 | `src/lib/store/`                      | Owner-scoped store interfaces; `dynamo/` (deployed), `memory` (local/test) and `unconfigured` implementations; `limits.ts` holds per-plan limits |
 | `src/lib/config.ts`, `src/lib/log.ts` | Configuration validation and content-free logging                                                                                                |
+| `src/eval/`                           | Synthetic evaluation set, scoring and release gates ([docs/evaluation.md](docs/evaluation.md))                                                   |
 
 ## Commands
 
@@ -27,6 +28,7 @@ yarn test               # service tests
 yarn test:contracts     # contract package tests
 yarn check              # all of the above
 yarn smoke:bedrock      # opt-in: real Bedrock smoke test and golden-set cost run (see below)
+yarn eval:bedrock       # opt-in: release evaluation against Bedrock (docs/evaluation.md)
 yarn start              # serverless-offline on :3005 with the memory store (needs .env, see .env.example)
 ```
 
@@ -146,3 +148,7 @@ Plain text needs no upload: it is submitted as `{kind: 'text'}` (PDF text extrac
 - **Apply target.** `new_resume` of type `job_specific`, derived from the source.
 - **Retries.** Checkpoints hold no content, so a retried job reads the requirements again (and pays for it again within the same cap).
 - **Money.** Admission checks that the guardrail, the requirements call and the worst-case composition call all fit the USD 0.05 cap. Haiku 4.5 has no byte-exact token bound either, so it uses the same UTF-8 bound as Nova. The pure worst case can be above USD 0.04 for a long job description, so the p95 gate in `src/lib/model/session-budget.spec.ts` uses an estimate; `yarn smoke:bedrock` measures the metered cost on the golden fixtures with a job description.
+
+## Evaluation and release gates (MDI-223)
+
+`src/eval/` holds the evaluation set of design §14: 74 synthetic resumes across three source types, Georgian, sparse, conflicting and injected variants, and 20 job descriptions. It also holds the deterministic scorers and the release gates: extraction precision and recall per field and source type, zero injected or unsupported additions, full preservation, schema validity, cost and p95 latency per operation, and rated question usefulness. `yarn test` runs it with a scripted model; `yarn eval:bedrock` measures a release against Bedrock. See [docs/evaluation.md](docs/evaluation.md).
