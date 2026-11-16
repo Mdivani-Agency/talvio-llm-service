@@ -31,7 +31,13 @@ export function classifyClaude(error: unknown): Error {
     error instanceof Anthropic.RequestTimeoutError
   )
     return new ProviderUnavailableError();
-  if (error instanceof Anthropic.APIError) return new ProviderRejectedError();
+  if (error instanceof Anthropic.APIError)
+    // Status, the error's type or stable code, and the request id: never its message.
+    return new ProviderRejectedError({
+      status: error.status,
+      code: error.errorCode ?? error.type ?? undefined,
+      requestId: error.requestID ?? undefined,
+    });
   // Not from the API (key lookup, network stack): transient as far as this call can tell.
   return new ProviderUnavailableError();
 }

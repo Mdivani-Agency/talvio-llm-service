@@ -160,6 +160,31 @@ describe('Claude model client', () => {
     expect(String((error as Error).message)).not.toContain('sk-ant');
   });
 
+  it('keeps only the status, a safe error code and the request id of a rejection', async () => {
+    const headers = new Headers({ 'request-id': 'req_011' });
+    const { messages } = fake(() => {
+      throw Anthropic.APIError.generate(
+        400,
+        { type: 'error', error: { type: 'invalid_request_error', message: 'resume text here' } },
+        'resume text here',
+        headers,
+      );
+    });
+    const error = (await createClaudeModel({ apiKey: key, connect: () => messages })
+      .converse(request)
+      .catch((e: unknown) => e)) as ProviderRejectedError;
+    expect(error.detail).toEqual({
+      status: 400,
+      code: 'invalid_request_error',
+      requestId: 'req_011',
+    });
+    expect(JSON.stringify(error.detail)).not.toContain('resume');
+  });
+
+  it('drops an error code that is not a plain snake_case identifier', () => {
+    expect(new ProviderRejectedError({ code: 'Bad code: with text' }).detail.code).toBeUndefined();
+  });
+
   it('reads the key once, and again after a failed read', async () => {
     let reads = 0;
     const apiKey = async () => {

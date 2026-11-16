@@ -79,11 +79,23 @@ export class ProviderUnavailableError extends Error {
   }
 }
 
+/** What a rejection may say about itself: an HTTP status, a fixed error code and a request id. */
+export type RejectionDetail = { status?: number; code?: string; requestId?: string };
+
+const SAFE_CODE = /^[a-z0-9_]{1,64}$/;
+
 /** The provider refused the request itself (access, validation, missing model): not retryable. */
 export class ProviderRejectedError extends Error {
-  constructor() {
+  readonly detail: RejectionDetail;
+  constructor(detail: RejectionDetail = {}) {
     super('provider rejected the request');
     this.name = 'ProviderRejectedError';
+    // Only values that cannot carry content: an integer, a snake_case code and an id.
+    this.detail = {
+      status: Number.isInteger(detail.status) ? detail.status : undefined,
+      code: detail.code && SAFE_CODE.test(detail.code) ? detail.code : undefined,
+      requestId: detail.requestId?.slice(0, 128),
+    };
   }
 }
 
