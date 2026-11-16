@@ -1,0 +1,89 @@
+{
+  "schema": "resultEnvelopeSchemas.improve_profile",
+  "description": "Profile improvement: applies to the profile at its base revision.",
+  "payload": {
+    "jobId": "8c9d0e1f-2a3b-4c4d-9e6f-7a8b9c0d1e2c",
+    "schemaVersion": "1.0",
+    "operation": "improve_profile",
+    "inputHash": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+    "contextRevisionId": "7d8e9f0a-1b2c-4d3e-8f5a-6b7c8d9e0f17",
+    "contextHash": "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5",
+    "sourceRevision": "2026-09-30T08:00:00.000Z",
+    "versions": {
+      "pipelineReleaseId": "rel-2026-10-12.1",
+      "promptVersion": "improve_profile@1",
+      "modelId": "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    },
+    "resultKind": "complete",
+    "warnings": [],
+    "result": {
+      "proposal": {
+        "proposalId": "4e5f6a7b-8c9d-4e0f-9a2b-3c4d5e6f7a8e",
+        "source": {
+          "kind": "profile",
+          "id": "3f1c2b7e-8a4d-4c1e-9b2a-6d5e4f3a2b10",
+          "revision": "2026-09-30T08:00:00.000Z"
+        },
+        "sourceHash": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "applyTarget": {
+          "kind": "profile",
+          "profileId": "3f1c2b7e-8a4d-4c1e-9b2a-6d5e4f3a2b10",
+          "baseRevision": "2026-09-30T08:00:00.000Z"
+        },
+        "changes": [
+          {
+            "type": "field",
+            "changeKind": "factual_addition",
+            "id": "change:exp1-achievements",
+            "target": {
+              "section": "experience",
+              "entityId": "1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f51",
+              "field": "achievements"
+            },
+            "originalValue": [
+              "Cut checkout latency by 40%"
+            ],
+            "proposedValue": [
+              "Cut checkout latency by 40%",
+              "Led a team of 4 engineers on the 2023 checkout rewrite"
+            ],
+            "reason": "Adds the team leadership you described in your answer.",
+            "factIds": [
+              "fact:lead"
+            ],
+            "evidence": [
+              {
+                "sourceKind": "answer",
+                "sourceHash": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+                "entityId": null,
+                "field": null,
+                "page": null,
+                "block": null,
+                "start": 0,
+                "end": 52,
+                "originalStart": null,
+                "originalEnd": null,
+                "excerpt": "I led a team of 4 engineers on the checkout rewrite",
+                "clientSupplied": false,
+                "questionId": "q:lead-team",
+                "answerRevisionId": "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6c"
+              }
+            ],
+            "confirmation": {
+              "required": true,
+              "claims": [
+                {
+                  "id": "claim:team-of-4",
+                  "text": "You led a team of 4 engineers."
+                }
+              ]
+            }
+          }
+        ],
+        "omissions": [],
+        "document": null,
+        "summary": "Adds your team leadership."
+      }
+    }
+  }
+}

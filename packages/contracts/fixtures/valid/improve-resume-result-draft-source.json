@@ -1,0 +1,85 @@
+{
+  "schema": "resultEnvelopeSchemas.improve_resume",
+  "description": "Improvement of a mutable draft: applies to that draft at its base revision.",
+  "payload": {
+    "jobId": "8c9d0e1f-2a3b-4c4d-9e6f-7a8b9c0d1e2c",
+    "schemaVersion": "1.0",
+    "operation": "improve_resume",
+    "inputHash": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+    "contextRevisionId": "7d8e9f0a-1b2c-4d3e-8f5a-6b7c8d9e0f17",
+    "contextHash": "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5",
+    "sourceRevision": "2026-10-02T11:00:00.000Z",
+    "versions": {
+      "pipelineReleaseId": "rel-2026-10-12.1",
+      "promptVersion": "improve_resume@1",
+      "modelId": "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    },
+    "resultKind": "complete",
+    "warnings": [],
+    "result": {
+      "proposal": {
+        "proposalId": "4e5f6a7b-8c9d-4e0f-9a2b-3c4d5e6f7a8e",
+        "source": {
+          "kind": "resume",
+          "id": "8b3c4d5e-6f7a-4b2c-9d3e-4f5a6b7c8d92",
+          "revision": "2026-10-02T11:00:00.000Z",
+          "resumeType": "general",
+          "state": "draft",
+          "sourceResumeId": "7a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c81"
+        },
+        "sourceHash": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "applyTarget": {
+          "kind": "resume_draft",
+          "resumeId": "8b3c4d5e-6f7a-4b2c-9d3e-4f5a6b7c8d92",
+          "baseRevision": "2026-10-02T11:00:00.000Z"
+        },
+        "changes": [
+          {
+            "type": "field",
+            "changeKind": "rewrite",
+            "id": "change:tagline",
+            "target": {
+              "section": "person",
+              "entityId": null,
+              "field": "tagline"
+            },
+            "originalValue": "Backend engineer focused on payments.",
+            "proposedValue": "Backend engineer who builds fast, reliable payment systems.",
+            "reason": "States the focus more concretely without adding facts.",
+            "factIds": [],
+            "evidence": [
+              {
+                "sourceKind": "resume",
+                "sourceHash": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+                "entityId": null,
+                "field": "tagline",
+                "page": null,
+                "block": null,
+                "start": 0,
+                "end": 37,
+                "originalStart": null,
+                "originalEnd": null,
+                "excerpt": "Backend engineer focused on payments.",
+                "clientSupplied": false,
+                "questionId": null,
+                "answerRevisionId": null
+              }
+            ],
+            "confirmation": {
+              "required": true,
+              "claims": [
+                {
+                  "id": "claim:reliable",
+                  "text": "Your systems are described as reliable."
+                }
+              ]
+            }
+          }
+        ],
+        "omissions": [],
+        "document": null,
+        "summary": "Clearer tagline."
+      }
+    }
+  }
+}

@@ -1,0 +1,159 @@
+import { ConfigError, loadConfig } from './config';
+
+const base = { STAGE: 'dev', SUPABASE_URL: 'https://project.supabase.co/' };
+
+describe('loadConfig', () => {
+  it('applies defaults and normalizes the Supabase URL', () => {
+    expect(loadConfig(base)).toMatchObject({
+      SUPABASE_URL: 'https://project.supabase.co',
+      SUPABASE_JWT_AUDIENCE: 'authenticated',
+      SUPABASE_JWT_ALGORITHMS: ['ES256', 'RS256'],
+      STORE_DRIVER: 'unconfigured',
+      MAX_BODY_BYTES: 1_000_000,
+    });
+  });
+
+  it('names invalid variables without echoing their values', () => {
+    const secretish = 'not-a-url-with-SECRET-123';
+    try {
+      loadConfig({ STAGE: 'dev', SUPABASE_URL: secretish });
+      throw new Error('expected a ConfigError');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigError);
+      expect((error as ConfigError).variables).toEqual(['SUPABASE_URL']);
+      expect((error as Error).message).not.toContain(secretish);
+    }
+  });
+
+  it('takes the guardrail id and version together, with us-west-1 as the Bedrock Region', () => {
+    expect(loadConfig(base).BEDROCK_REGION).toBe('us-west-1');
+    expect(() => loadConfig({ ...base, GUARDRAIL_ID: 'gr-1' })).toThrow(
+      new ConfigError(['GUARDRAIL_ID']),
+    );
+    expect(loadConfig({ ...base, GUARDRAIL_ID: 'gr-1', GUARDRAIL_VERSION: '3' })).toMatchObject({
+      GUARDRAIL_ID: 'gr-1',
+      GUARDRAIL_VERSION: '3',
+    });
+    expect(() => loadConfig({ ...base, GUARDRAIL_ID: 'gr-1', GUARDRAIL_VERSION: 'DRAFT' })).toThrow(
+      ConfigError,
+    );
+  });
+
+  it('takes the Claude API key by parameter name on deployed stages, never by value', () => {
+    expect(
+      loadConfig({ ...base, ANTHROPIC_API_KEY_PARAMETER: '/dev/llm/anthropic-api-key' })
+        .ANTHROPIC_API_KEY_PARAMETER,
+    ).toBe('/dev/llm/anthropic-api-key');
+    expect(() => loadConfig({ ...base, ANTHROPIC_API_KEY_PARAMETER: 'not a path' })).toThrow(
+      new ConfigError(['ANTHROPIC_API_KEY_PARAMETER']),
+    );
+    expect(() => loadConfig({ ...base, ANTHROPIC_API_KEY: 'sk-ant-1' })).toThrow(
+      new ConfigError(['ANTHROPIC_API_KEY']),
+    );
+    expect(loadConfig({ ...base, STAGE: 'test', ANTHROPIC_API_KEY: 'sk-ant-1' })).toMatchObject({
+      ANTHROPIC_API_KEY: 'sk-ant-1',
+    });
+  });
+
+  it('requires a stage and a Supabase URL', () => {
+    expect(() => loadConfig({})).toThrow(new ConfigError(['STAGE', 'SUPABASE_URL']));
+  });
+
+  it('never accepts the symmetric HS256 secret mode', () => {
+    expect(() => loadConfig({ ...base, SUPABASE_JWT_ALGORITHMS: 'HS256' })).toThrow(ConfigError);
+  });
+
+  it('keeps the memory store to local and test stages', () => {
+    expect(() => loadConfig({ ...base, STORE_DRIVER: 'memory' })).toThrow(
+      new ConfigError(['STORE_DRIVER']),
+    );
+    expect(loadConfig({ ...base, STAGE: 'local', STORE_DRIVER: 'memory' }).STORE_DRIVER).toBe(
+      'memory',
+    );
+  });
+
+  it('requires https for deployed stages', () => {
+    expect(() => loadConfig({ ...base, SUPABASE_URL: 'http://project.supabase.co' })).toThrow(
+      new ConfigError(['SUPABASE_URL']),
+    );
+    expect(() =>
+      loadConfig({ STAGE: 'local', SUPABASE_URL: 'http://127.0.0.1:54321' }),
+    ).not.toThrow();
+  });
+
+  describe('dynamodb store', () => {
+    const tables = {
+      LLM_JOBS_TABLE: 'talvio-llm-jobs-dev',
+      LLM_SESSIONS_TABLE: 'talvio-llm-sessions-dev',
+      LLM_QUOTAS_TABLE: 'talvio-llm-quotas-dev',
+      LLM_OUTBOX_TABLE: 'talvio-llm-outbox-dev',
+    };
+    const queueUrls = JSON.stringify({ v1: 'https://sqs.us-west-1.amazonaws.com/1/work-v1' });
+    const buckets = { LLM_QUARANTINE_BUCKET: 'q', LLM_ARTIFACTS_BUCKET: 'a' };
+    const withQueues = { ...base, ...buckets, WORK_QUEUE_URLS: queueUrls };
+
+    it('needs all four Terraform-owned table names', () => {
+      expect(loadConfig({ ...withQueues, STORE_DRIVER: 'dynamodb', ...tables })).toMatchObject({
+        STORE_DRIVER: 'dynamodb',
+        ...tables,
+      });
+      const { LLM_OUTBOX_TABLE: _omitted, ...three } = tables;
+      expect(() => loadConfig({ ...withQueues, STORE_DRIVER: 'dynamodb', ...three })).toThrow(
+        new ConfigError(['STORE_DRIVER']),
+      );
+    });
+
+    it('allows a local DynamoDB endpoint only on local and test stages', () => {
+      const env = { ...withQueues, STORE_DRIVER: 'dynamodb', ...tables };
+      const endpoint = 'http://localhost:8000';
+      expect(() => loadConfig({ ...env, DYNAMODB_ENDPOINT: endpoint })).toThrow(
+        new ConfigError(['DYNAMODB_ENDPOINT']),
+      );
+      expect(
+        loadConfig({ ...env, STAGE: 'test', DYNAMODB_ENDPOINT: endpoint }).DYNAMODB_ENDPOINT,
+      ).toBe(endpoint);
+    });
+
+    it('reads the account-wide daily ceiling', () => {
+      expect(loadConfig(base).ACCOUNT_DAILY_CEILING_MICRO_USD).toBe(5_000_000);
+      expect(
+        loadConfig({ ...base, ACCOUNT_DAILY_CEILING_MICRO_USD: '5000000' })
+          .ACCOUNT_DAILY_CEILING_MICRO_USD,
+      ).toBe(5_000_000);
+    });
+
+    it('needs a work queue URL for the pipeline release', () => {
+      const env = { ...base, ...buckets, STORE_DRIVER: 'dynamodb', ...tables };
+      const urls = queueUrls;
+      expect(() => loadConfig(env)).toThrow(new ConfigError(['WORK_QUEUE_URLS']));
+      expect(loadConfig({ ...env, WORK_QUEUE_URLS: urls })).toMatchObject({
+        PIPELINE_RELEASE: 'v1',
+        WORK_QUEUE_URLS: { v1: 'https://sqs.us-west-1.amazonaws.com/1/work-v1' },
+      });
+      expect(() => loadConfig({ ...env, WORK_QUEUE_URLS: urls, PIPELINE_RELEASE: 'v2' })).toThrow(
+        ConfigError,
+      );
+      expect(() => loadConfig({ ...env, WORK_QUEUE_URLS: 'not json' })).toThrow(
+        new ConfigError(['WORK_QUEUE_URLS']),
+      );
+    });
+
+    it('needs both buckets on deployed stages, and OCR settings once a type is listed', () => {
+      const env = { ...base, STORE_DRIVER: 'dynamodb', ...tables, WORK_QUEUE_URLS: queueUrls };
+      expect(() => loadConfig(env)).toThrow(new ConfigError(['LLM_QUARANTINE_BUCKET']));
+      const ok = { ...env, ...buckets };
+      expect(loadConfig(ok).OCR_CONTENT_TYPES).toEqual([]);
+      expect(() => loadConfig({ ...ok, OCR_CONTENT_TYPES: 'application/pdf' })).toThrow(
+        new ConfigError(['OCR_CONTENT_TYPES']),
+      );
+      expect(
+        loadConfig({
+          ...ok,
+          OCR_CONTENT_TYPES: 'application/pdf, image/png',
+          OCR_TOPIC_ARN: 'arn:topic',
+          OCR_ROLE_ARN: 'arn:role',
+        }).OCR_CONTENT_TYPES,
+      ).toEqual(['application/pdf', 'image/png']);
+    });
+  });
+});

@@ -1,0 +1,25 @@
+{
+  "schema": "resultEnvelopeSchemas.generate_questions",
+  "description": "Zero questions is a valid, complete result.",
+  "payload": {
+    "jobId": "9f0a1b2c-3d4e-4f5a-8b7c-8d9e0f1a2b39",
+    "schemaVersion": "1.0",
+    "operation": "generate_questions",
+    "inputHash": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+    "contextRevisionId": "7d8e9f0a-1b2c-4d3e-8f5a-6b7c8d9e0f17",
+    "contextHash": "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5",
+    "sourceRevision": "2026-10-01T09:30:00.000Z",
+    "versions": {
+      "pipelineReleaseId": "rel-2026-10-12.1",
+      "promptVersion": "generate_questions@1",
+      "modelId": "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    },
+    "resultKind": "complete",
+    "warnings": [],
+    "result": {
+      "questionSetId": "1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5b",
+      "round": 2,
+      "questions": []
+    }
+  }
+}

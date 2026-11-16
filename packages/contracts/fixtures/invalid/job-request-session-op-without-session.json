@@ -1,0 +1,15 @@
+{
+  "schema": "createJobRequestSchema",
+  "description": "Session-bound operations need sessionId and contextRevisionId.",
+  "payload": {
+    "schemaVersion": "1.0",
+    "clientRequestId": "improve-4b5c6d7e",
+    "locale": "en-US",
+    "operation": "improve_resume",
+    "parentJobId": null,
+    "input": {
+      "sections": [],
+      "targetRole": null
+    }
+  }
+}
