@@ -7,14 +7,14 @@ import { PARSE_MODEL_ID } from './parse-document';
 import { sessionBlocks, UNTRUSTED_RULE, type SessionInput } from './session-input';
 
 /*
- * improve_profile / improve_resume prompt pack, version 1 (design §§5, 9). The model returns only
+ * improve_profile / improve_resume prompt pack, version 2 (Claude Haiku 5.5, MDI-638; design §§5, 9). The model returns only
  * the fields it changes, as a compact list of lines: each line keeps an original line by handle or
  * gives new text with the handles it rewrites. It never re-emits unchanged text. The service
  * restores anything the model leaves out, checks every new line's facts against the source and the
  * user's answers, and builds the reviewable proposal (src/lib/improve).
  */
 
-export const IMPROVE_PROMPT_VERSION = 'improve@1';
+export const IMPROVE_PROMPT_VERSION = 'improve@2';
 export const IMPROVE_MODEL_ID = PARSE_MODEL_ID;
 export const IMPROVE_TOOL = 'record_improvements';
 

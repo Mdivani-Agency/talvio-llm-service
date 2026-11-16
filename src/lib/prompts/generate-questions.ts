@@ -7,14 +7,14 @@ import { PARSE_MODEL_ID } from './parse-document';
 import { sessionBlocks, UNTRUSTED_RULE, type SessionInput } from './session-input';
 
 /*
- * generate_questions prompt pack, version 1 (design §§3, 12). Zero to five questions about real
+ * generate_questions prompt pack, version 2 (Claude Haiku 5.5, MDI-638; design §§3, 12). Zero to five questions about real
  * gaps in the candidate's source, optionally guided by an earlier analysis. The service drops
  * questions on topics already asked in the session, questions that state numbers the source does
  * not contain and questions that point at nothing in the source or the analysis
  * (src/lib/questions).
  */
 
-export const QUESTIONS_PROMPT_VERSION = 'generate_questions@1';
+export const QUESTIONS_PROMPT_VERSION = 'generate_questions@2';
 export const QUESTIONS_MODEL_ID = PARSE_MODEL_ID;
 export const QUESTIONS_TOOL = 'record_questions';
 

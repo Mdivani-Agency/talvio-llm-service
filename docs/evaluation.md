@@ -69,10 +69,11 @@ A `pending` gate blocks a release the same way a failed gate does.
 ## Running it
 
 - In CI, `yarn test` runs `eval.spec.ts`. It covers the set, the scorers, the gates, and an end-to-end run of the real executors with a scripted model. That model answers parses from the key and plants an injection on request, which proves the gates catch it.
-- Before a release, run it against Bedrock with credentials for the target account:
+- Before a release, run it against the real providers: AWS credentials for the target account (the guardrail stays on Bedrock) and a Claude API key in the shell, never in a file:
 
   ```bash
-  LLM_EVAL=1 BEDROCK_REGION=us-west-1 GUARDRAIL_ID=... GUARDRAIL_VERSION=... yarn eval:bedrock
+  LLM_EVAL=1 BEDROCK_REGION=us-west-1 GUARDRAIL_ID=... GUARDRAIL_VERSION=... \
+    ANTHROPIC_API_KEY=... yarn eval:live
   ```
 
   The run is about 146 jobs and costs under USD 6. It writes `eval-out/report.json` and `eval-out/questions.json`.

@@ -4,7 +4,7 @@ import { createTextractClient } from '../lib/ocr';
 import { createLogger, type Logger } from '../lib/log';
 import { createNoQueues, createSqsQueues, type WorkQueues } from '../lib/queue';
 import { createStore, type Store } from '../lib/store';
-import { createBedrockGuardrail, createBedrockModel } from '../lib/model/client';
+import { createModelDeps } from '../lib/model/providers';
 import type { OcrConfig } from './ocr';
 import { createAnalyzeExecutor } from './analyze';
 import { createImproveExecutor } from './improve';
@@ -35,7 +35,7 @@ export type Runtime = {
 
 /**
  * Executors by operation for this pipeline release. An operation without one (not built yet, or
- * its guardrail is not configured) fails at once with a retryable `dependency_unavailable` instead
+ * its guardrail or Claude API key is not configured) fails at once with a retryable `dependency_unavailable` instead
  * of waiting out its deadline.
  */
 export function createExecutors(deps: {
@@ -44,15 +44,9 @@ export function createExecutors(deps: {
   blobs: BlobStore;
   logger: Logger;
 }): Executors {
-  const { config } = deps;
-  if (!config.GUARDRAIL_ID || !config.GUARDRAIL_VERSION) return {};
-  const model = createBedrockModel(config.BEDROCK_REGION);
-  const guardrail = createBedrockGuardrail(
-    config.BEDROCK_REGION,
-    config.GUARDRAIL_ID,
-    config.GUARDRAIL_VERSION,
-  );
-  const modelDeps = { ...deps, model, guardrail };
+  const providers = createModelDeps(deps.config, { logger: deps.logger });
+  if (!providers) return {};
+  const modelDeps = { ...deps, ...providers };
   return {
     parse_document: createParseExecutor(modelDeps),
     analyze_resume: createAnalyzeExecutor(modelDeps),

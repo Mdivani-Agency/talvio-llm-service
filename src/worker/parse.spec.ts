@@ -118,8 +118,7 @@ describe('parse_document executor', () => {
     expect(sent.maxTokens).toBeGreaterThanOrEqual(4_096);
 
     // Spend is what was charged: 2 guardrail units plus the metered tokens, under the cap.
-    const expected =
-      300 + Math.ceil((3_000 * 330_000) / 1e6) + Math.ceil((1_500 * 2_750_000) / 1e6);
+    const expected = 300 + Math.ceil((3_000 * 100_000) / 1e6) + Math.ceil((1_500 * 500_000) / 1e6);
     expect(done).toMatchObject({ spendCommittedMicroUsd: expected, spendReservedMicroUsd: 0 });
     expect(spentMicroUsd(done!.exec.checkpoints)).toBe(expected);
 
@@ -201,8 +200,8 @@ describe('parse_document executor', () => {
   it('refuses a call that cannot fit what is left of the cap', async () => {
     const admitted = await job();
     store.testing.setJob(jobId, {
-      budgetCapMicroUsd: 5_000,
-      spendReservedMicroUsd: 5_000,
+      budgetCapMicroUsd: 1_000,
+      spendReservedMicroUsd: 1_000,
       exec: admitted!.exec,
     });
     expect(await run()).toBe('failed');

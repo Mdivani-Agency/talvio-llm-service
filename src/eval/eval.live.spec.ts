@@ -2,20 +2,21 @@ import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
 import { loadConfig } from '../lib/config';
-import { createBedrockGuardrail, createBedrockModel } from '../lib/model/client';
+import { createModelDeps } from '../lib/model/providers';
 import { DOCUMENTS, JOBS } from './fixtures';
 import { PERSONAS } from './personas';
 import { evaluate } from './run';
 
 /*
- * Release evaluation against real Bedrock (MDI-223, design §14). Skipped unless LLM_EVAL=1. Run
- * it before a prompt, model or pipeline release, with credentials for the target account and the
- * pinned guardrail:
+ * Release evaluation against the real providers (MDI-223, MDI-638, design §14). Skipped unless
+ * LLM_EVAL=1. Run it before a prompt, model or pipeline release, with AWS credentials for the
+ * target account (the pinned guardrail stays on Bedrock) and a Claude API key in the shell:
  *
- *   LLM_EVAL=1 BEDROCK_REGION=us-west-1 GUARDRAIL_ID=... GUARDRAIL_VERSION=... yarn eval:bedrock
+ *   LLM_EVAL=1 BEDROCK_REGION=us-west-1 GUARDRAIL_ID=... GUARDRAIL_VERSION=... \
+ *     ANTHROPIC_API_KEY=... yarn eval:live
  *
  * It runs 74 parses, 20 tailoring sessions (analysis, questions, tailoring) and 12 improvements,
- * about 146 jobs. At the USD 0.04 p95 target that is under USD 6 of Bedrock spend.
+ * about 146 jobs. At the USD 0.04 p95 target that is under USD 6 of model and guardrail spend.
  *
  * It writes to EVAL_OUT (default eval-out/, git-ignored):
  * - report.json: the content-free report and every gate's status;
@@ -40,13 +41,10 @@ suite('release evaluation', () => {
     const ratings = process.env.EVAL_RATINGS
       ? (JSON.parse(readFileSync(process.env.EVAL_RATINGS, 'utf8')) as Record<string, boolean>)
       : undefined;
+    const providers = createModelDeps(config);
+    if (!providers) throw new Error('set GUARDRAIL_ID, GUARDRAIL_VERSION and ANTHROPIC_API_KEY');
     const { report, questions } = await evaluate({
-      model: createBedrockModel(config.BEDROCK_REGION),
-      guardrail: createBedrockGuardrail(
-        config.BEDROCK_REGION,
-        config.GUARDRAIL_ID!,
-        config.GUARDRAIL_VERSION!,
-      ),
+      ...providers,
       documents: DOCUMENTS,
       jobs: JOBS,
       improve: PERSONAS,

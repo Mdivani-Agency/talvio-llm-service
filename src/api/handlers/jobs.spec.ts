@@ -357,7 +357,7 @@ describe('POST /v1/jobs', () => {
   it('refuses an analysis or questions job whose input cannot fit the job budget', async () => {
     const session = await openSession(tokenA);
     const contextId = session.latestContext.contextRevisionId;
-    app.store.testing.setLimitOverride(USER_A, { jobCapMicroUsd: 2_000 });
+    app.store.testing.setLimitOverride(USER_A, { jobCapMicroUsd: 500 });
     const analysis = {
       schemaVersion: '1.0',
       clientRequestId: 'analysis-0001',
