@@ -3,13 +3,8 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [development, main]
   workflow_dispatch:
-    inputs:
-      deploy:
-        description: Deploy to dev after the checks pass
-        type: boolean
-        default: false
 
 concurrency:
   group: llm-service-${{ github.ref_name }}
@@ -56,12 +51,15 @@ jobs:
       - name: Test contracts
         run: yarn test:contracts
 
-  # Manual. Needs the dev platform from talvio-terraform-iac (MDI-213) and the llm deploy role in
-  # AWS_DEPLOY_ROLE_ARN. Every route except health answers 503 until the DynamoDB store lands (MDI-214).
+  # Like media-service and email-service: a push to `development` (or a manual run on it) deploys
+  # stage dev once the checks pass. Needs the dev platform from talvio-terraform-iac and the
+  # llm deploy role in the dev Environment's AWS_DEPLOY_ROLE_ARN; without it the job only says so.
   deploy-dev:
     name: deploy (dev)
     needs: check
-    if: github.event_name == 'workflow_dispatch' && inputs.deploy
+    if: |
+      github.ref == 'refs/heads/development' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     environment: dev
     env:
@@ -79,7 +77,7 @@ jobs:
         run: yarn install --immutable
       - name: Skip deploy (no AWS_DEPLOY_ROLE_ARN)
         if: env.ROLE_ARN == ''
-        run: echo "Set the dev environment variable AWS_DEPLOY_ROLE_ARN to the llm_deploy_role_arn bootstrap output (SSM /dev/ci/llm-deploy-role-arn)." >> "$GITHUB_STEP_SUMMARY"
+        run: echo "Set the dev environment variable AWS_DEPLOY_ROLE_ARN to the llm_deploy_role_arn output (SSM /dev/ci/llm-deploy-role-arn)." >> "$GITHUB_STEP_SUMMARY"
       - name: Configure AWS (OIDC)
         if: env.ROLE_ARN != ''
         uses: aws-actions/configure-aws-credentials@v4
@@ -89,3 +87,40 @@ jobs:
       - name: Deploy
         if: env.ROLE_ARN != ''
         run: yarn sls deploy --stage dev --verbose
+
+  # Like media-service and email-service: a push to `main` (or a manual run on it) deploys
+  # stage prod once the checks pass. Needs the prod platform from talvio-terraform-iac and the
+  # llm deploy role in the prod Environment's AWS_DEPLOY_ROLE_ARN; without it the job only says so.
+  deploy-prod:
+    name: deploy (prod)
+    needs: check
+    if: |
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    environment: prod
+    env:
+      ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
+      SERVERLESS_LICENSE_KEY: ${{ secrets.SERVERLESS_LICENSE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Enable Yarn
+        run: corepack enable
+      - name: Install
+        run: yarn install --immutable
+      - name: Skip deploy (no AWS_DEPLOY_ROLE_ARN)
+        if: env.ROLE_ARN == ''
+        run: echo "Set the prod environment variable AWS_DEPLOY_ROLE_ARN to the llm_deploy_role_arn output (SSM /prod/ci/llm-deploy-role-arn)." >> "$GITHUB_STEP_SUMMARY"
+      - name: Configure AWS (OIDC)
+        if: env.ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Deploy
+        if: env.ROLE_ARN != ''
+        run: yarn sls deploy --stage prod --verbose
