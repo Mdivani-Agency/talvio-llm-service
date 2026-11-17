@@ -1,7 +1,7 @@
 /*
  * Grounding (design §9): a value the model reports is kept only when it can be found in the
  * source text, and the result points at where. Matching is exact first, then tolerant of
- * whitespace and case only; it never fuzzes words, so a paraphrase or an invented value does not
+ * whitespace, case and a line break after a hyphen only; it never fuzzes words, so a paraphrase or an invented value does not
  * match and is reported instead.
  */
 
@@ -29,9 +29,12 @@ export class SourceText {
     if (exact) return exact;
     const folded = this.indexAfter(needle.toLowerCase(), from, true);
     if (folded) return folded;
+    // Any whitespace between words, and a line break after a hyphen ("event-" / "driven" for
+    // "event-driven"), as a PDF wraps a line; never other characters.
     const words = needle.split(/\s+/).filter(Boolean).map(escape);
-    if (words.length < 2) return null;
-    const pattern = new RegExp(words.join('\\s+'), 'gi');
+    const hyphenated = words.some((word) => word.includes('-'));
+    if (words.length < 2 && !hyphenated) return null;
+    const pattern = new RegExp(words.map((word) => word.replace(/-/g, '-\\s*')).join('\\s+'), 'gi');
     return this.regexAfter(pattern, from);
   }
 
@@ -64,7 +67,12 @@ export class SourceText {
   }
 
   slice(span: Span): string {
-    return this.text.slice(span.start, span.end).replace(/\s+/g, ' ').trim();
+    // A word the PDF wrapped after its hyphen ("event-" / "driven") reads as one word again.
+    return this.text
+      .slice(span.start, span.end)
+      .replace(/(\w-)[^\S\n]*\n\s*(?=\w)/g, '$1')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   private indexAfter(needle: string, from: number, folded: boolean): Span | null {

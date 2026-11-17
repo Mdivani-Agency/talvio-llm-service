@@ -23,6 +23,16 @@ describe('SourceText', () => {
     expect(source.find('Senior Engineer', 30)?.start).toBe(35);
   });
 
+  it('finds a value whose hyphenated word a PDF wrapped onto the next line', () => {
+    const wrapped = new SourceText('Moved a monolith to event-\ndriven services.');
+    expect(wrapped.slice(wrapped.find('a monolith to event-driven services')!)).toBe(
+      'a monolith to event-driven services',
+    );
+    expect(wrapped.find('event-driven')).not.toBeNull();
+    expect(wrapped.find('eventdriven services')).toBeNull();
+    expect(new SourceText('event driven').find('event-driven')).toBeNull();
+  });
+
   it('never matches paraphrases or invented values', () => {
     expect(source.find('Sr. Engineer')).toBeNull();
     expect(source.find('Globex')).toBeNull();
