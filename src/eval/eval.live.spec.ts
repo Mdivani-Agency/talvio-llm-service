@@ -21,8 +21,9 @@ import { evaluate } from './run';
  * It writes to EVAL_OUT (default eval-out/, git-ignored):
  * - report.json: the content-free report and every gate's status;
  * - questions.json: the generated questions (synthetic, like the whole set) for people to rate.
- * Ratings go in a JSON file of { "<key>": true | false } named by EVAL_RATINGS; until every
- * question is rated, the usefulness gate stays pending and the release is not cleared.
+ * Until every question is rated, the usefulness gate stays pending and the release is not cleared.
+ * Rate this run's questions with `yarn eval:rate` (rate.live.spec.ts), not by running again: a new
+ * run asks different questions. EVAL_RATINGS here still applies ratings in the same run.
  */
 
 const enabled = process.env.LLM_EVAL === '1';

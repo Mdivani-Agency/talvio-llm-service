@@ -18,7 +18,8 @@
     "test:contracts": "yarn workspace @talvio/llm-contracts test",
     "check": "yarn lint && yarn typecheck && yarn test && yarn test:contracts",
     "smoke:live": "LLM_SMOKE=1 jest src/lib/model/live.smoke.spec.ts --runInBand",
-    "eval:live": "LLM_EVAL=1 jest src/eval/eval.live.spec.ts --runInBand"
+    "eval:live": "LLM_EVAL=1 jest src/eval/eval.live.spec.ts --runInBand",
+    "eval:rate": "LLM_EVAL_RATE=1 jest src/eval/rate.live.spec.ts --runInBand"
   },
   "author": "Giorgi Mdivani",
   "license": "ISC",
