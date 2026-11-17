@@ -8,11 +8,12 @@ import type { QuestionSample, Report } from './run';
  * Applies usefulness ratings to the last `yarn eval:live` run, with no model calls. Skipped unless
  * LLM_EVAL_RATE=1:
  *
- *   EVAL_RATINGS=ratings.json yarn eval:rate
+ *   EVAL_RATINGS=eval-out/ratings.json yarn eval:rate
  *
- * It reads report.json and questions.json from EVAL_OUT (default eval-out/), writes the rated
- * report back, and fails while any gate fails or any question is unrated. Without EVAL_RATINGS it
- * writes ratings.template.json, one key per question, for people to fill in with true or false.
+ * EVAL_RATINGS is a path relative to the repo root. The test reads report.json and questions.json
+ * from EVAL_OUT (default eval-out/), writes the rated report back, and fails while any gate fails
+ * or any question is unrated. Without EVAL_RATINGS it writes ratings.template.json, one key per
+ * question, for people to fill in with true or false.
  */
 
 const enabled = process.env.LLM_EVAL_RATE === '1';
