@@ -1,0 +1,33 @@
+{
+  "schema": "createJobRequestSchema",
+  "description": "parse_document from browser-extracted PDF text with a page manifest; page 2 is uncertain.",
+  "payload": {
+    "schemaVersion": "1.0",
+    "clientRequestId": "parse-pdf-1b2c3d4e",
+    "locale": "en-GB",
+    "operation": "parse_document",
+    "input": {
+      "kind": "text",
+      "text": "Page one text. Page two text.",
+      "extraction": {
+        "extractor": "pdfjs-dist",
+        "extractorVersion": "5.4.149",
+        "pageCount": 2,
+        "pages": [
+          {
+            "page": 1,
+            "start": 0,
+            "end": 14,
+            "coverage": "text"
+          },
+          {
+            "page": 2,
+            "start": 15,
+            "end": 29,
+            "coverage": "uncertain"
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,16 +1,23 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "types": ["node", "jest"],
     "module": "commonjs",
+    "moduleResolution": "node",
     "strict": true,
+    "noUncheckedIndexedAccess": true,
     "esModuleInterop": true,
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
     "paths": {
-      "@functions/*": ["./src/functions/*"],
-      "@lib/*": ["./src/lib/*"]
+      "@lib/*": ["./src/lib/*"],
+      "@talvio/llm-contracts": ["./packages/contracts/src"],
+      "@talvio/llm-contracts/fixtures": ["./packages/contracts/src/fixtures"]
     }
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": ["src/**/*.ts", "serverless.ts"],
+  "exclude": ["node_modules", "packages"]
 }

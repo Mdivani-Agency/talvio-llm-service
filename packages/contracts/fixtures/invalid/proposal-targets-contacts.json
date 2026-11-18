@@ -1,0 +1,45 @@
+{
+  "schema": "proposedChangeSchema",
+  "description": "Contacts are never a proposal target.",
+  "payload": {
+    "type": "field",
+    "changeKind": "rewrite",
+    "id": "change:tagline",
+    "target": {
+      "section": "contacts",
+      "entityId": null,
+      "field": "email"
+    },
+    "originalValue": "Backend engineer focused on payments.",
+    "proposedValue": "Backend engineer who builds fast, reliable payment systems.",
+    "reason": "States the focus more concretely without adding facts.",
+    "factIds": [],
+    "evidence": [
+      {
+        "sourceKind": "resume",
+        "sourceHash": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "entityId": null,
+        "field": "tagline",
+        "page": null,
+        "block": null,
+        "start": 0,
+        "end": 37,
+        "originalStart": null,
+        "originalEnd": null,
+        "excerpt": "Backend engineer focused on payments.",
+        "clientSupplied": false,
+        "questionId": null,
+        "answerRevisionId": null
+      }
+    ],
+    "confirmation": {
+      "required": true,
+      "claims": [
+        {
+          "id": "claim:reliable",
+          "text": "Your systems are described as reliable."
+        }
+      ]
+    }
+  }
+}

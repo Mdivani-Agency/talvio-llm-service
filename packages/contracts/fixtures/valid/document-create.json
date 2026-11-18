@@ -1,0 +1,11 @@
+{
+  "schema": "createDocumentRequestSchema",
+  "description": "Register a PDF upload.",
+  "payload": {
+    "schemaVersion": "1.0",
+    "fileName": "Nino Beridze CV.pdf",
+    "contentType": "application/pdf",
+    "sizeBytes": 182344,
+    "sha256": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+  }
+}

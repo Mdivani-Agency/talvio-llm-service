@@ -1,0 +1,774 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "person": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "contacts": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "location": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "experience": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "education": {
+      "$ref": "#/$defs/__schema18"
+    },
+    "projects": {
+      "$ref": "#/$defs/__schema20"
+    },
+    "recommendations": {
+      "$ref": "#/$defs/__schema22"
+    },
+    "skills": {
+      "$ref": "#/$defs/__schema24"
+    },
+    "tools": {
+      "$ref": "#/$defs/__schema26"
+    },
+    "links": {
+      "$ref": "#/$defs/__schema27"
+    },
+    "languages": {
+      "$ref": "#/$defs/__schema29"
+    }
+  },
+  "required": [
+    "person",
+    "contacts",
+    "location",
+    "experience",
+    "education",
+    "projects",
+    "recommendations",
+    "skills",
+    "tools",
+    "links",
+    "languages"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "type": "object",
+      "properties": {
+        "firstName": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lastName": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tagline": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema2"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "seniority": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "entry",
+                "mid",
+                "senior"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "firstName",
+        "lastName",
+        "role",
+        "tagline",
+        "seniority"
+      ],
+      "additionalProperties": false
+    },
+    "__schema1": {
+      "type": "string",
+      "maxLength": 300
+    },
+    "__schema2": {
+      "type": "string",
+      "maxLength": 5000
+    },
+    "__schema3": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "phone": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "url": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "email",
+        "phone",
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    "__schema4": {
+      "type": "object",
+      "properties": {
+        "city": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "country": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "city",
+        "country"
+      ],
+      "additionalProperties": false
+    },
+    "__schema5": {
+      "maxItems": 50,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema6"
+      }
+    },
+    "__schema6": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "company": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "jobTitle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "employmentType": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "full-time",
+                "part-time",
+                "contract",
+                "self-employed",
+                "volunteer",
+                "internship",
+                "apprenticeship",
+                "seasonal"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "locationType": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "remote",
+                "hybrid",
+                "office"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "startDate": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "endDate": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "current": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema12"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "achievements": {
+          "$ref": "#/$defs/__schema17"
+        },
+        "responsibilities": {
+          "$ref": "#/$defs/__schema17"
+        },
+        "keyContributions": {
+          "$ref": "#/$defs/__schema17"
+        }
+      },
+      "required": [
+        "id",
+        "company",
+        "jobTitle",
+        "employmentType",
+        "locationType",
+        "startDate",
+        "endDate",
+        "current",
+        "description",
+        "achievements",
+        "responsibilities",
+        "keyContributions"
+      ],
+      "additionalProperties": false
+    },
+    "__schema7": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]*$"
+    },
+    "__schema8": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema9"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "__schema9": {
+      "type": "string",
+      "pattern": "^\\d{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12]\\d|3[01]))?)?$"
+    },
+    "__schema10": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema9"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "__schema11": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "__schema12": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "doc"
+        },
+        "blocks": {
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema13"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "blocks"
+      ],
+      "additionalProperties": false
+    },
+    "__schema13": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "paragraph"
+            },
+            "content": {
+              "$ref": "#/$defs/__schema14"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "bulletList"
+            },
+            "items": {
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema14"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "items"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "orderedList"
+            },
+            "items": {
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema14"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "items"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "__schema14": {
+      "maxItems": 200,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema15"
+      }
+    },
+    "__schema15": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 5000
+        },
+        "marks": {
+          "maxItems": 3,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema16"
+          }
+        },
+        "href": {
+          "type": "string",
+          "maxLength": 2048,
+          "format": "uri"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "__schema16": {
+      "type": "string",
+      "enum": [
+        "bold",
+        "italic",
+        "underline"
+      ]
+    },
+    "__schema17": {
+      "maxItems": 30,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema2"
+      }
+    },
+    "__schema18": {
+      "maxItems": 50,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema19"
+      }
+    },
+    "__schema19": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "degreeType": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "Associate Degree",
+                "Bachelor's Degree",
+                "Master's Degree",
+                "Doctorate Degree",
+                "Professional Degree",
+                "Certificate",
+                "Diploma",
+                "High School Diploma",
+                "Trade School Certificate",
+                "MBA",
+                "MFA",
+                "MEd",
+                "MSW",
+                "PhD",
+                "JD",
+                "MD",
+                "EDD"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "startDate": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "endDate": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "current": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema12"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "degreeType",
+        "startDate",
+        "endDate",
+        "current",
+        "description"
+      ],
+      "additionalProperties": false
+    },
+    "__schema20": {
+      "maxItems": 50,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema21"
+      }
+    },
+    "__schema21": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "url": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema12"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "url",
+        "description"
+      ],
+      "additionalProperties": false
+    },
+    "__schema22": {
+      "maxItems": 50,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema23"
+      }
+    },
+    "__schema23": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "url": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema12"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "url",
+        "description"
+      ],
+      "additionalProperties": false
+    },
+    "__schema24": {
+      "maxItems": 50,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema25"
+      }
+    },
+    "__schema25": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "name": {
+          "$ref": "#/$defs/__schema1"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "__schema26": {
+      "maxItems": 50,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema25"
+      }
+    },
+    "__schema27": {
+      "maxItems": 50,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema28"
+      }
+    },
+    "__schema28": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "value": {
+          "$ref": "#/$defs/__schema1"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "__schema29": {
+      "maxItems": 50,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema30"
+      }
+    },
+    "__schema30": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "language": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "proficiency": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "beginner",
+                "intermediate",
+                "fluent",
+                "native"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "language",
+        "proficiency"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

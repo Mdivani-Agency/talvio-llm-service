@@ -1,0 +1,226 @@
+{
+  "schema": "resultEnvelopeSchemas.parse_document",
+  "description": "Partial parse: unknown end date stays null (current is null, not true); page 2 needs review so the result is partial.",
+  "payload": {
+    "jobId": "8e9f0a1b-2c3d-4e4f-9a6b-7c8d9e0f1a28",
+    "schemaVersion": "1.0",
+    "operation": "parse_document",
+    "inputHash": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+    "contextRevisionId": null,
+    "contextHash": null,
+    "sourceRevision": null,
+    "versions": {
+      "pipelineReleaseId": "rel-2026-10-12.1",
+      "promptVersion": "parse_document@1",
+      "modelId": "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    },
+    "resultKind": "partial",
+    "warnings": [
+      {
+        "code": "page_needs_review",
+        "message": "Page 2 could not be read completely.",
+        "entityId": null,
+        "page": 2
+      }
+    ],
+    "result": {
+      "career": {
+        "person": {
+          "firstName": "Nino",
+          "lastName": "Beridze",
+          "role": "Senior Backend Engineer",
+          "tagline": null,
+          "seniority": null
+        },
+        "contacts": {
+          "email": null,
+          "phone": null,
+          "url": null
+        },
+        "location": {
+          "city": null,
+          "country": null
+        },
+        "experience": [
+          {
+            "id": "parsed:experience:0",
+            "company": "Acme",
+            "jobTitle": "Senior Backend Engineer",
+            "employmentType": null,
+            "locationType": null,
+            "startDate": "2021-03",
+            "endDate": null,
+            "current": null,
+            "description": null,
+            "achievements": [
+              "Cut checkout latency by 40%"
+            ],
+            "responsibilities": [
+              "Own the payments API"
+            ],
+            "keyContributions": []
+          },
+          {
+            "id": "parsed:experience:1",
+            "company": "Globex",
+            "jobTitle": "Backend Engineer",
+            "employmentType": null,
+            "locationType": null,
+            "startDate": "2018",
+            "endDate": "2021-02",
+            "current": false,
+            "description": null,
+            "achievements": [],
+            "responsibilities": [
+              "Maintained billing jobs"
+            ],
+            "keyContributions": []
+          }
+        ],
+        "education": [],
+        "projects": [],
+        "recommendations": [],
+        "skills": [],
+        "tools": [],
+        "links": [],
+        "languages": []
+      },
+      "facts": [
+        {
+          "id": "fact:1",
+          "subjectEntityId": "parsed:experience:0",
+          "section": "experience",
+          "predicate": "employer",
+          "value": "Acme",
+          "quantity": null,
+          "unit": null,
+          "qualifiers": [],
+          "negated": false,
+          "date": null,
+          "datePrecision": null,
+          "status": "supported",
+          "evidence": [
+            {
+              "sourceKind": "document",
+              "sourceHash": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+              "entityId": null,
+              "field": null,
+              "page": 1,
+              "block": 2,
+              "start": 30,
+              "end": 34,
+              "originalStart": null,
+              "originalEnd": null,
+              "excerpt": "Acme",
+              "clientSupplied": true,
+              "questionId": null,
+              "answerRevisionId": null
+            }
+          ]
+        },
+        {
+          "id": "fact:2",
+          "subjectEntityId": "parsed:experience:0",
+          "section": "experience",
+          "predicate": "start_date",
+          "value": "March 2021",
+          "quantity": null,
+          "unit": null,
+          "qualifiers": [],
+          "negated": false,
+          "date": "2021-03",
+          "datePrecision": "month",
+          "status": "supported",
+          "evidence": [
+            {
+              "sourceKind": "document",
+              "sourceHash": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+              "entityId": null,
+              "field": null,
+              "page": 1,
+              "block": 2,
+              "start": 62,
+              "end": 72,
+              "originalStart": null,
+              "originalEnd": null,
+              "excerpt": "March 2021",
+              "clientSupplied": true,
+              "questionId": null,
+              "answerRevisionId": null
+            }
+          ]
+        },
+        {
+          "id": "fact:3",
+          "subjectEntityId": "parsed:experience:0",
+          "section": "experience",
+          "predicate": "metric",
+          "value": "Cut checkout latency by 40%",
+          "quantity": "40",
+          "unit": "%",
+          "qualifiers": [
+            "checkout latency"
+          ],
+          "negated": false,
+          "date": null,
+          "datePrecision": null,
+          "status": "supported",
+          "evidence": [
+            {
+              "sourceKind": "document",
+              "sourceHash": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+              "entityId": null,
+              "field": null,
+              "page": 1,
+              "block": 3,
+              "start": 76,
+              "end": 103,
+              "originalStart": null,
+              "originalEnd": null,
+              "excerpt": "Cut checkout latency by 40%",
+              "clientSupplied": true,
+              "questionId": null,
+              "answerRevisionId": null
+            }
+          ]
+        }
+      ],
+      "uncertainties": [
+        {
+          "id": "unc:1",
+          "section": "experience",
+          "entityId": "parsed:experience:0",
+          "field": "endDate",
+          "reason": "unknown_date",
+          "message": "No end date given; not marked as current.",
+          "evidence": [
+            {
+              "sourceKind": "document",
+              "sourceHash": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+              "entityId": null,
+              "field": null,
+              "page": 1,
+              "block": 2,
+              "start": 62,
+              "end": 74,
+              "originalStart": null,
+              "originalEnd": null,
+              "excerpt": "March 2021 –",
+              "clientSupplied": true,
+              "questionId": null,
+              "answerRevisionId": null
+            }
+          ]
+        }
+      ],
+      "extraction": {
+        "method": "client_pdf_text",
+        "ocrPages": 0,
+        "complete": false,
+        "pagesNeedingReview": [
+          2
+        ]
+      }
+    }
+  }
+}

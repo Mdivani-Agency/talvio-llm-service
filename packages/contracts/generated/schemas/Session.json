@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "purpose": {
+      "type": "string",
+      "enum": [
+        "improve",
+        "tailor"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "closed",
+        "expired",
+        "deleted"
+      ]
+    },
+    "latestContext": {
+      "type": "object",
+      "properties": {
+        "contextRevisionId": {
+          "$ref": "#/$defs/__schema0"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/__schema0"
+        },
+        "contextHash": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "sourceHash": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobDescriptionHash": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "answerRevisionId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema0"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "createdAt": {
+          "$ref": "#/$defs/__schema2"
+        }
+      },
+      "required": [
+        "contextRevisionId",
+        "sessionId",
+        "contextHash",
+        "sourceHash",
+        "jobDescriptionHash",
+        "answerRevisionId",
+        "createdAt"
+      ],
+      "additionalProperties": false
+    },
+    "questionRoundsUsed": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2
+    },
+    "questionsIssued": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10
+    },
+    "createdAt": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "expiresAt": {
+      "$ref": "#/$defs/__schema2"
+    }
+  },
+  "required": [
+    "sessionId",
+    "purpose",
+    "status",
+    "latestContext",
+    "questionRoundsUsed",
+    "questionsIssued",
+    "createdAt",
+    "expiresAt"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "__schema1": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "__schema2": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "schema": "evidenceRefSchema",
+  "description": "Answer evidence must name its question and answer revision.",
+  "payload": {
+    "sourceKind": "answer",
+    "sourceHash": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+    "entityId": null,
+    "field": null,
+    "page": null,
+    "block": null,
+    "start": 0,
+    "end": 5,
+    "originalStart": null,
+    "originalEnd": null,
+    "excerpt": "I led",
+    "clientSupplied": false,
+    "questionId": null,
+    "answerRevisionId": null
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "@talvio/llm-contracts",
+  "version": "1.0.0",
+  "description": "Versioned request/result contracts for the Talvio LLM service (/llm/v1)",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./fixtures": {
+      "types": "./dist/fixtures.d.ts",
+      "default": "./dist/fixtures.js"
+    },
+    "./openapi.json": "./generated/openapi.json",
+    "./schemas/*": "./generated/schemas/*"
+  },
+  "files": [
+    "dist",
+    "fixtures",
+    "generated"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "generate": "yarn build && node scripts/generate.js",
+    "test": "jest",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/jest": "29.5.14",
+    "@types/node": "22.20.4",
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1",
+    "jest": "29.7.0",
+    "ts-jest": "29.4.12",
+    "typescript": "5.8.3"
+  }
+}

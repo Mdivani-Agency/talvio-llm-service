@@ -1,0 +1,20 @@
+{
+  "schema": "createJobRequestSchema",
+  "description": "improve_resume after answers (context revision 2).",
+  "payload": {
+    "schemaVersion": "1.0",
+    "clientRequestId": "improve-4b5c6d7e",
+    "locale": "en-US",
+    "operation": "improve_resume",
+    "sessionId": "5b6c7d8e-9f0a-4b1c-8d3e-4f5a6b7c8d95",
+    "contextRevisionId": "7d8e9f0a-1b2c-4d3e-8f5a-6b7c8d9e0f17",
+    "parentJobId": "9f0a1b2c-3d4e-4f5a-8b7c-8d9e0f1a2b39",
+    "input": {
+      "sections": [
+        "person",
+        "experience"
+      ],
+      "targetRole": null
+    }
+  }
+}
