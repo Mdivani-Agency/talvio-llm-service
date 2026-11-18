@@ -49,6 +49,27 @@ describe('sessions', () => {
     expect(session.latestContext.jobDescriptionHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it('refuses content too large to store, before writing anything', async () => {
+    // Within every per-field limit, but over the 400 KB a DynamoDB item can hold.
+    const [entry] = improveSession.source.document.experience;
+    const experience = [1, 2, 3].map((n) => ({
+      ...entry,
+      id: `1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5${n}`,
+      achievements: Array.from({ length: 30 }, () => 'a'.repeat(5_000)),
+    }));
+    const big = {
+      ...improveSession,
+      clientRequestId: 'too-large-request-0001',
+      source: {
+        ...improveSession.source,
+        document: { ...improveSession.source.document, experience },
+      },
+    };
+    const response = await create(big);
+    expect(response.statusCode).toBe(413);
+    expect(json(response.body)).toMatchObject({ error: { code: 'payload_too_large' } });
+  });
+
   it("hides another user's session", async () => {
     const { sessionId, latestContext } = json((await create(improveSession)).body) as any;
     const params = { sessionId };

@@ -5,13 +5,14 @@ import {
   DeleteTableCommand,
   UpdateTimeToLiveCommand,
 } from '@aws-sdk/client-dynamodb';
-import { PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, PutCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 
 import { describeStoreContract } from '../store.contract';
 import { createDb, epochSeconds, utcDay, type Db, type Tables } from './db';
+import { createDynamoExecutionStore } from './execution';
 import { createDynamoStore } from './index';
 import { createDynamoJobStore } from './jobs';
-import { limitsKey, settleQuota } from './quota';
+import { dayKey, limitsKey, settleQuota } from './quota';
 import { transact } from './db';
 
 /*
@@ -123,6 +124,72 @@ suite('DynamoDB', () => {
         );
       },
     };
+  });
+
+  describe('settling a job a worker is still writing', () => {
+    // The worker checkpoints a paid call between the cancel's (or delete's) read and its write.
+    // Settling the stale snapshot would release that call's reservation; the write must retry.
+    const raced = async (end: 'cancel' | 'delete') => {
+      const owner = randomUUID();
+      const now = new Date();
+      const execution = createDynamoExecutionStore(db);
+      let lease: Parameters<typeof execution.checkpoint>[0] | null = null;
+      let pending = true;
+      const send = db.client.send.bind(db.client);
+      // The same client, with a send that lets the worker write first.
+      const client = Object.create(db.client) as Db['client'];
+      client.send = (async (command: unknown) => {
+        if (pending && lease && command instanceof TransactWriteCommand) {
+          pending = false;
+          const at = new Date(now.getTime() + 1);
+          await execution.checkpoint(lease, 'inference', { 'spend.1': '30000' }, at);
+        }
+        return send(command as never);
+      }) as Db['client']['send'];
+      const racy: Db = { ...db, client };
+      const jobs = createDynamoJobStore(racy);
+      const { job } = await jobs.admit({
+        ownerId: owner,
+        plan: 'free',
+        pipelineReleaseId: 'v1',
+        idempotencyKey: `key-race-${end}`,
+        requestHash: 'h',
+        request: {
+          operation: 'parse_document',
+          input: { kind: 'text', text: 't', extraction: null },
+        } as never,
+        now,
+        deadlineAt: new Date(now.getTime() + 600_000),
+      });
+      const claim = await execution.claim(owner, job.jobId, now, 60_000);
+      if (claim.kind !== 'claimed') throw new Error('not claimed');
+      lease = claim.lease;
+      if (end === 'cancel') {
+        expect(await jobs.cancel(owner, job.jobId, now)).toMatchObject({
+          status: 'cancelled',
+          spendCommittedMicroUsd: 30_000,
+        });
+      } else {
+        expect(await jobs.delete(owner, job.jobId)).toBe(true);
+      }
+      expect(pending).toBe(false);
+      const bucket = await db.client.send(
+        new GetCommand({
+          TableName: tables.quotas,
+          Key: dayKey(owner, utcDay(now)),
+          ConsistentRead: true,
+        }),
+      );
+      return bucket.Item;
+    };
+
+    it('keeps the checkpointed call on cancel', async () => {
+      expect(await raced('cancel')).toMatchObject({ committedMicro: 30_000, reservedMicro: 0 });
+    });
+
+    it('keeps the checkpointed call on delete', async () => {
+      expect(await raced('delete')).toMatchObject({ committedMicro: 30_000, reservedMicro: 0 });
+    });
   });
 
   describe('retention', () => {

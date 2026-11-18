@@ -28,8 +28,28 @@ function toSession(record: SessionRecord) {
   });
 }
 
+/**
+ * The source and the job description are each stored as one DynamoDB item, which holds at most
+ * 400 KB. The contract's per-field limits allow more than that in total, so larger content is
+ * refused here, with room left for the item's keys and attributes.
+ */
+export const STORED_CONTENT_MAX_BYTES = 350_000;
+
+const TOO_LARGE = 'This resume is too large to work with. Shorten it and try again.';
+
+function assertStorable(value: unknown) {
+  if (
+    value !== null &&
+    Buffer.byteLength(JSON.stringify(value), 'utf8') > STORED_CONTENT_MAX_BYTES
+  ) {
+    throw new ApiError('payload_too_large', { message: TOO_LARGE });
+  }
+}
+
 /** Server-computed hashes; clients never supply them. */
 function contextInput(source: SourceSnapshot, jobDescription: JobDescription | null): ContextInput {
+  assertStorable(source);
+  assertStorable(jobDescription);
   const sourceHash = contentHash(source);
   const jobDescriptionHash = jobDescription ? contentHash(jobDescription) : null;
   return {
