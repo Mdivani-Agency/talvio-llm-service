@@ -25,12 +25,18 @@ describe('SourceText', () => {
 
   it('finds a value whose hyphenated word a PDF wrapped onto the next line', () => {
     const wrapped = new SourceText('Moved a monolith to event-\ndriven services.');
-    expect(wrapped.slice(wrapped.find('a monolith to event-driven services')!)).toBe(
-      'a monolith to event-driven services',
-    );
+    const value = 'a monolith to event-driven services';
+    expect(wrapped.slice(wrapped.find(value)!, value)).toBe(value);
     expect(wrapped.find('event-driven')).not.toBeNull();
     expect(wrapped.find('eventdriven services')).toBeNull();
     expect(new SourceText('event driven').find('event-driven')).toBeNull();
+  });
+
+  it('keeps the space after a suspended hyphen the PDF wrapped', () => {
+    const suspended = new SourceText('Built front-\nand back-end services');
+    const value = 'Built front- and back-end services';
+    expect(suspended.slice(suspended.find(value)!, value)).toBe(value);
+    expect(suspended.slice(suspended.find(value)!)).toBe(value);
   });
 
   it('never matches paraphrases or invented values', () => {

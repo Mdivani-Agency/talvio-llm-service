@@ -66,11 +66,18 @@ export class SourceText {
     return best;
   }
 
-  slice(span: Span): string {
-    // A word the PDF wrapped after its hyphen ("event-" / "driven") reads as one word again.
+  /**
+   * The text of a span with whitespace collapsed. A word the PDF wrapped after its hyphen
+   * ("event-" / "driven") reads as one word again only where `quoted` (the value as the model
+   * wrote it) has it as one word, so a suspended hyphen ("front-" / "and back-end") keeps its space.
+   */
+  slice(span: Span, quoted?: string): string {
+    const joined = quoted?.replace(/\s+/g, ' ').toLowerCase() ?? '';
     return this.text
       .slice(span.start, span.end)
-      .replace(/(\w-)[^\S\n]*\n\s*(?=\w)/g, '$1')
+      .replace(/(\S*-)[^\S\n]*\n\s*(?=(\S+))/g, (match: string, head: string, tail: string) =>
+        joined.includes(`${head}${tail}`.toLowerCase()) ? head : match,
+      )
       .replace(/\s+/g, ' ')
       .trim();
   }

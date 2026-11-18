@@ -200,7 +200,7 @@ export function normalizeParse(output: ModelOutput, text: string, meta: SourceMe
       return null;
     }
     spans.push(span);
-    const found = source.slice(span);
+    const found = source.slice(span, value);
     if (found.length > at.max) {
       uncertain(
         at.section,
