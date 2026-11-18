@@ -424,12 +424,15 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
               Key: jobKey(ownerId, jobId),
               UpdateExpression:
                 'SET #status = :cancelled, #stage = :done, updatedAt = :now, spendReservedMicroUsd = :zero, spendCommittedMicroUsd = :committed',
-              ConditionExpression: '#status = :seen',
+              // Unchanged since load: a worker that checkpointed a paid call in between moved
+              // updatedAt, and settling this snapshot would release that call's reservation.
+              ConditionExpression: '#status = :seen AND updatedAt = :seenAt',
               ExpressionAttributeNames: { '#status': 'status', '#stage': 'stage' },
               ExpressionAttributeValues: {
                 ':cancelled': 'cancelled',
                 ':done': 'done',
                 ':seen': job.status,
+                ':seenAt': job.updatedAt.toISOString(),
                 ':now': now.toISOString(),
                 ':zero': 0,
                 ':committed': committedSpend(job),
@@ -532,9 +535,13 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
             Delete: {
               TableName: tables.jobs,
               Key: jobKey(ownerId, jobId),
-              ConditionExpression: '#status = :seen',
+              // Unchanged since load, so the quota settled below includes every checkpointed call.
+              ConditionExpression: '#status = :seen AND updatedAt = :seenAt',
               ExpressionAttributeNames: { '#status': 'status' },
-              ExpressionAttributeValues: { ':seen': job.status },
+              ExpressionAttributeValues: {
+                ':seen': job.status,
+                ':seenAt': job.updatedAt.toISOString(),
+              },
             },
           },
           { Delete: { TableName: tables.jobs, Key: idemKey(ownerId, job.idempotencyKey) } },
