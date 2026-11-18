@@ -1,7 +1,7 @@
 /*
  * Grounding (design §9): a value the model reports is kept only when it can be found in the
  * source text, and the result points at where. Matching is exact first, then tolerant of
- * whitespace and case only; it never fuzzes words, so a paraphrase or an invented value does not
+ * whitespace, case and a line break after a hyphen only; it never fuzzes words, so a paraphrase or an invented value does not
  * match and is reported instead.
  */
 
@@ -29,9 +29,12 @@ export class SourceText {
     if (exact) return exact;
     const folded = this.indexAfter(needle.toLowerCase(), from, true);
     if (folded) return folded;
+    // Any whitespace between words, and a line break after a hyphen ("event-" / "driven" for
+    // "event-driven"), as a PDF wraps a line; never other characters.
     const words = needle.split(/\s+/).filter(Boolean).map(escape);
-    if (words.length < 2) return null;
-    const pattern = new RegExp(words.join('\\s+'), 'gi');
+    const hyphenated = words.some((word) => word.includes('-'));
+    if (words.length < 2 && !hyphenated) return null;
+    const pattern = new RegExp(words.map((word) => word.replace(/-/g, '-\\s*')).join('\\s+'), 'gi');
     return this.regexAfter(pattern, from);
   }
 
@@ -63,8 +66,20 @@ export class SourceText {
     return best;
   }
 
-  slice(span: Span): string {
-    return this.text.slice(span.start, span.end).replace(/\s+/g, ' ').trim();
+  /**
+   * The text of a span with whitespace collapsed. A word the PDF wrapped after its hyphen
+   * ("event-" / "driven") reads as one word again only where `quoted` (the value as the model
+   * wrote it) has it as one word, so a suspended hyphen ("front-" / "and back-end") keeps its space.
+   */
+  slice(span: Span, quoted?: string): string {
+    const joined = quoted?.replace(/\s+/g, ' ').toLowerCase() ?? '';
+    return this.text
+      .slice(span.start, span.end)
+      .replace(/(\S*-)[^\S\n]*\n\s*(?=(\S+))/g, (match: string, head: string, tail: string) =>
+        joined.includes(`${head}${tail}`.toLowerCase()) ? head : match,
+      )
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   private indexAfter(needle: string, from: number, folded: boolean): Span | null {
