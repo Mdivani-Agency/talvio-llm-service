@@ -16,6 +16,7 @@ const DEFAULT_MESSAGES: Record<HttpErrorCode, string> = {
   budget_exceeded_preflight: 'This request is too large to process.',
   unsupported_language: 'This language is not supported yet.',
   quota_exceeded: 'You have reached today’s AI limit.',
+  operation_limit_reached: 'You have used your free profile improvement.',
   dependency_unavailable: 'AI features are temporarily unavailable. Try again later.',
   internal_error: 'Something went wrong.',
 };

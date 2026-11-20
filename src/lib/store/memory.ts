@@ -5,6 +5,7 @@ import type {
   ContextRevision,
   CreateJobRequest,
   JobDescription,
+  Operation,
   SourceSnapshot,
 } from '@talvio/llm-contracts';
 
@@ -13,9 +14,11 @@ import { committedSpend } from '../ledger';
 import { answeredContext, firstContext } from './context';
 import {
   DEFAULT_ACCOUNT_DAILY_CEILING_MICRO_USD,
+  OperationLimitError,
   PLAN_LIMITS,
   PRICING_VERSION,
   QuotaExceededError,
+  isOncePerUser,
   resolveLimits,
   type LimitOverride,
   type UserLimits,
@@ -77,6 +80,8 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
     { revision: ContextRevision; source: SourceSnapshot; jobDescription: JobDescription | null }
   >();
   const submissions: (AnswerSubmission & { sessionId: string })[] = [];
+  /** Holder of each once-per-user operation, by `${ownerId}#${operation}`; never removed. */
+  const once = new Map<string, string>();
   /** Deleted jobs still count toward their day, as the DynamoDB counters keep them. */
   const deleted: { ownerId: string; day: string; spent: number }[] = [];
 
@@ -127,6 +132,22 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
     if (accountUsed(day) + reserve > accountCeiling) {
       throw new QuotaExceededError('account_ceiling');
     }
+  };
+
+  /**
+   * The job a new admission may take a once-per-user operation over from (one that failed without
+   * spending anything), null when nobody holds it; throws when it is used. A deleted holder counts.
+   */
+  const onceHolder = (ownerId: string, operation: Operation) => {
+    const holder = once.get(`${ownerId}#${operation}`);
+    if (!holder) {
+      return null;
+    }
+    const job = jobs.get(holder);
+    if (job && job.status === 'failed' && job.spendCommittedMicroUsd === 0) {
+      return holder;
+    }
+    throw new OperationLimitError(operation);
   };
 
   const findByKey = (ownerId: string, idempotencyKey: string) =>
@@ -238,6 +259,10 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
           }
           return { job: existing, replayed: true, event: null };
         }
+        const limited = isOncePerUser(limitsFor(ownerId, plan), request.operation);
+        if (limited) {
+          onceHolder(ownerId, request.operation);
+        }
         const reserve = limitsFor(ownerId, plan).jobBudgetMicroUsd;
         checkQuota(ownerId, limitsFor(ownerId, plan), utcDay(now), reserve, true);
         const session = 'sessionId' in request ? request : null;
@@ -294,6 +319,9 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
           },
         };
         jobs.set(job.jobId, job);
+        if (limited) {
+          once.set(`${ownerId}#${request.operation}`, job.jobId);
+        }
         inputs.set(job.jobId, structuredClone(request));
         const event = emit('job.admitted', job, now);
         watch(job, new Date(now.getTime() + DISPATCH_GRACE_MS));
@@ -335,7 +363,16 @@ export function createMemoryStore(options: MemoryStoreOptions = {}): MemoryStore
           return job;
         }
         const reserve = job.budgetCapMicroUsd;
-        checkQuota(ownerId, limitsFor(ownerId, job.plan), utcDay(job.createdAt), reserve, false);
+        const limits = limitsFor(ownerId, job.plan);
+        const onceKey = `${ownerId}#${job.operation}`;
+        const limited = isOncePerUser(limits, job.operation);
+        if (limited && (once.get(onceKey) ?? jobId) !== jobId) {
+          throw new OperationLimitError(job.operation);
+        }
+        checkQuota(ownerId, limits, utcDay(job.createdAt), reserve, false);
+        if (limited) {
+          once.set(onceKey, jobId);
+        }
         Object.assign(job, {
           status: 'queued',
           stage: 'admission',

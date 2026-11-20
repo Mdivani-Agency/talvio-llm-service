@@ -73,6 +73,7 @@ All state is in the four Terraform-owned DynamoDB tables (`src/lib/store/dynamo/
 
 - **Admission** is one `TransactWriteItems`: the job, its idempotency record, the quota and spend holds (user day, user active, account day) and the outbox event. A replay is answered before any of that and consumes no quota. Transactions are never held across model or OCR calls.
 - **Limits** come from `src/lib/limits.ts` (20 jobs per UTC day, 2 active, USD 1.00 per day, USD 0.05 per job, planning budget USD 0.10, account ceiling) by the token's `plan`, and a per-user override item (`U#<user>` / `LIMITS` in the quotas table, any subset of the fields) changes them without a deploy.
+- **Once per user** (MDI-649): the free plan allows `improve_profile` once, ever. The first admitted job takes `U#<user>` / `ONCE#improve_profile` in the quotas table in its admission transaction (no TTL). A second admission gets `429 operation_limit_reached` (not retryable). A replay or a retry of the holding job does not count again; only a holder that failed without committed spend gives it back to the next admission. A support reset deletes that item.
 - **Retention** is DynamoDB TTL on `expiresAt`: incomplete uploads 24 h, result payloads, sessions, documents and answers 7 days, job metadata, idempotency records and outbox events 30 days. TTL deletion can lag, so reads also treat an expired item as missing.
 - **Outbox** events sit in a sparse index until the dispatcher marks them dispatched (see below).
 
@@ -165,7 +166,7 @@ Metrics are CloudWatch embedded metric format lines on the log stream (`src/lib/
 | `JobRetried`, `JobStale`                                                   | Operation                                                              | worker                                            |
 | `ModelCalls`, `ModelInputTokens`, `ModelOutputTokens`, `ModelCostMicroUsd` | Operation                                                              | each model call                                   |
 | `GuardrailBlocked`, `ResultInvalid`                                        | Operation                                                              | input guardrail; contract check before publishing |
-| `QuotaRejected`                                                            | Kind (`jobs_per_day`, `active_jobs`, `daily_spend`, `account_ceiling`) | admission and owner retry                         |
+| `QuotaRejected`                                                            | Kind (`jobs_per_day`, `active_jobs`, `daily_spend`, `account_ceiling`, `once_per_user`) | admission and owner retry                         |
 | `ReconcileDue`, `ReconcileExpired`, `ReconcileRequeued`, `ReconcileFailed` | none                                                                   | reconciler run                                    |
 | `DeadLetters`                                                              | Kind (`job`, `document`)                                               | DLQ handler                                       |
 
