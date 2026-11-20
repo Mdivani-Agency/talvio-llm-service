@@ -301,7 +301,23 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
     const limits = await limitsFor(ownerId, plan);
     // A used operation is refused for good, before any daily limit is looked at.
     const once = isOncePerUser(limits, request.operation);
-    const replacesOnce = once ? await onceHolder(ownerId, request.operation, now) : null;
+    let replacesOnce: string | null = null;
+    if (once) {
+      try {
+        replacesOnce = await onceHolder(ownerId, request.operation, now);
+      } catch (error) {
+        // A concurrent request with this key may have been admitted since the replay check
+        // above, and its job is now the holder: answer it as a replay, not as a refusal.
+        const winner =
+          error instanceof OperationLimitError
+            ? await findByIdempotencyKey(ownerId, idempotencyKey)
+            : null;
+        if (winner) {
+          return replayOrConflict(winner, requestHash);
+        }
+        throw error;
+      }
+    }
     const reserve = limits.jobBudgetMicroUsd;
     const day = utcDay(now);
     const take = { newJob: true, reserve, day, limits, accountCeiling };
