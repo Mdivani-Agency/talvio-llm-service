@@ -1,6 +1,7 @@
 import { jobAcceptedSchema, jobSchema } from '@talvio/llm-contracts';
 import { loadFixture } from '@talvio/llm-contracts/fixtures';
 
+import { SPARSE_SOURCE } from '../../test/fixtures/session';
 import { USER_A, USER_B, event, json, testApp, type TestApp } from '../../test/helpers';
 
 const sessionFixture = loadFixture('valid', 'session-create-improve-generated-resume')
@@ -396,6 +397,44 @@ describe('POST /v1/jobs', () => {
       code: 'invalid_request',
       issues: [{ path: 'operation' }],
     });
+  });
+
+  it('allows improve_profile once per user and answers operation_limit_reached after', async () => {
+    const opened = await app.handle(
+      event('POST', '/v1/sessions', {
+        body: { ...sessionFixture, clientRequestId: 'profile-session-01', source: SPARSE_SOURCE },
+        token: tokenA,
+      }),
+    );
+    expect(opened.statusCode).toBe(201);
+    const session = json(opened.body) as {
+      sessionId: string;
+      latestContext: { contextRevisionId: string };
+    };
+    const profile = (key: string) => ({
+      ...improve(key, session.sessionId, session.latestContext.contextRevisionId),
+      operation: 'improve_profile',
+    });
+
+    expect((await post(profile('profile-0001'), tokenA, 'profile-0001')).statusCode).toBe(202);
+
+    const refused = await post(profile('profile-0002'), tokenA, 'profile-0002');
+    expect(refused.statusCode).toBe(429);
+    expect(json(refused.body)).toMatchObject({
+      error: {
+        code: 'operation_limit_reached',
+        message: 'You have used your free profile improvement.',
+        retryable: false,
+      },
+    });
+    expect(app.logs.map((line) => JSON.parse(line))).toContainEqual(
+      expect.objectContaining({ QuotaRejected: 1, Kind: 'once_per_user' }),
+    );
+
+    // The admitted request still replays.
+    const replay = await post(profile('profile-0001'), tokenA, 'profile-0001');
+    expect(replay.statusCode).toBe(202);
+    expect(json(replay.body)).toMatchObject({ replayed: true });
   });
 
   it('refuses an improve operation that does not fit the session source', async () => {

@@ -840,7 +840,7 @@
             }
           },
           "429": {
-            "description": "quota_exceeded",
+            "description": "quota_exceeded, operation_limit_reached",
             "content": {
               "application/json": {
                 "schema": {
@@ -1180,6 +1180,16 @@
           },
           "409": {
             "description": "invalid_retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "operation_limit_reached",
             "content": {
               "application/json": {
                 "schema": {
@@ -3958,6 +3968,7 @@
                   "budget_exceeded_preflight",
                   "unsupported_language",
                   "quota_exceeded",
+                  "operation_limit_reached",
                   "dependency_unavailable",
                   "internal_error"
                 ]

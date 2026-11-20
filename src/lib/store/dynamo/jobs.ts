@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import type { CreateJobRequest } from '@talvio/llm-contracts';
+import type { CreateJobRequest, Operation } from '@talvio/llm-contracts';
 
 import { BatchGetCommand, GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 
@@ -7,9 +7,11 @@ import { DISPATCH_GRACE_MS } from '../../execution';
 import {
   DEFAULT_ACCOUNT_DAILY_CEILING_MICRO_USD,
   PLAN_LIMITS,
+  OperationLimitError,
   PRICING_VERSION,
   QuotaExceededError,
   RETENTION_MS,
+  isOncePerUser,
   limitOverrideSchema,
   resolveLimits,
   type LimitOverride,
@@ -48,7 +50,15 @@ import {
 } from './job-items';
 import { eventItem } from './outbox';
 import { sweepDelete, sweepPut } from './sweep';
-import { failedAt, limitsKey, preflight, quotaFailure, settleQuota, takeQuota } from './quota';
+import {
+  failedAt,
+  limitsKey,
+  onceKey,
+  preflight,
+  quotaFailure,
+  settleQuota,
+  takeQuota,
+} from './quota';
 import { committedSpend } from '../../ledger';
 import { roundAttribute } from './sessions';
 
@@ -144,6 +154,72 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
       : []),
   ];
 
+  /**
+   * Takes a once-per-user operation for `jobId` (MDI-649): the holder item must be absent, already
+   * this job's (a retry), or `replaces`', a job that failed without spending anything. Kept for
+   * good: the item has no TTL and nothing in the service deletes it.
+   */
+  const onceItems = (
+    ownerId: string,
+    operation: Operation,
+    jobId: string,
+    replaces: string | null,
+    now: Date,
+  ): TransactItem[] => [
+    {
+      Update: {
+        TableName: tables.quotas,
+        Key: onceKey(ownerId, operation),
+        UpdateExpression: 'SET jobId = :jobId, takenAt = :now',
+        ConditionExpression: replaces
+          ? 'jobId = :replaces'
+          : 'attribute_not_exists(pk) OR jobId = :jobId',
+        ExpressionAttributeValues: {
+          ':jobId': jobId,
+          ':now': now.toISOString(),
+          ...(replaces ? { ':replaces': replaces } : {}),
+        },
+      },
+    },
+    ...(replaces
+      ? [
+          {
+            ConditionCheck: {
+              TableName: tables.jobs,
+              Key: jobKey(ownerId, replaces),
+              ConditionExpression: '#status = :failed AND spendCommittedMicroUsd = :zero',
+              ExpressionAttributeNames: { '#status': 'status' },
+              ExpressionAttributeValues: { ':failed': 'failed', ':zero': 0 },
+            },
+          } satisfies TransactItem,
+        ]
+      : []),
+  ];
+
+  /**
+   * Who holds a once-per-user operation: null when nobody does, the job a new admission may take
+   * it over from when that job failed without spending anything, and OperationLimitError when it
+   * is used. A deleted holder still counts.
+   */
+  async function onceHolder(ownerId: string, operation: Operation, now: Date) {
+    const { Item } = await client.send(
+      new GetCommand({
+        TableName: tables.quotas,
+        Key: onceKey(ownerId, operation),
+        ConsistentRead: true,
+      }),
+    );
+    if (!Item) {
+      return null;
+    }
+    const holder = String(Item.jobId);
+    const job = await loadItem(ownerId, holder, now);
+    if (job && job.status === 'failed' && job.spendCommittedMicroUsd === 0) {
+      return holder;
+    }
+    throw new OperationLimitError(operation);
+  }
+
   async function loadItem(ownerId: string, jobId: string, now: Date): Promise<JobItem | null> {
     const { Item } = await client.send(
       new GetCommand({ TableName: tables.jobs, Key: jobKey(ownerId, jobId), ConsistentRead: true }),
@@ -223,6 +299,25 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
     }
 
     const limits = await limitsFor(ownerId, plan);
+    // A used operation is refused for good, before any daily limit is looked at.
+    const once = isOncePerUser(limits, request.operation);
+    let replacesOnce: string | null = null;
+    if (once) {
+      try {
+        replacesOnce = await onceHolder(ownerId, request.operation, now);
+      } catch (error) {
+        // A concurrent request with this key may have been admitted since the replay check
+        // above, and its job is now the holder: answer it as a replay, not as a refusal.
+        const winner =
+          error instanceof OperationLimitError
+            ? await findByIdempotencyKey(ownerId, idempotencyKey)
+            : null;
+        if (winner) {
+          return replayOrConflict(winner, requestHash);
+        }
+        throw error;
+      }
+    }
     const reserve = limits.jobBudgetMicroUsd;
     const day = utcDay(now);
     const take = { newJob: true, reserve, day, limits, accountCeiling };
@@ -282,6 +377,8 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
     };
 
     let roundAt = 0;
+    let onceAt = 0;
+    let onceTaken: TransactItem[] = [];
     const roundItems =
       input.questionRound && session
         ? questionRoundItems(ownerId, session.sessionId, jobId, input.questionRound, now)
@@ -322,7 +419,9 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
         },
       ];
       roundAt = items.length;
-      await transact([...items, ...roundItems]);
+      onceAt = roundAt + roundItems.length;
+      onceTaken = once ? onceItems(ownerId, request.operation, jobId, replacesOnce, now) : [];
+      await transact([...items, ...roundItems, ...onceTaken]);
     } catch (error) {
       // A retry of an admitted request also fails the round items (its own job holds the round),
       // so the idempotency winner is answered first.
@@ -335,6 +434,10 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
       }
       if (roundItems.some((_, i) => failedAt(error, roundAt + i))) {
         throw new QuestionRoundTakenError();
+      }
+      // Another admission took the operation first, or the job it would replace changed.
+      if (onceTaken.some((_, i) => failedAt(error, onceAt + i))) {
+        throw new OperationLimitError(request.operation);
       }
       const kind = quotaFailure(error, 2, take);
       if (kind) {
@@ -467,6 +570,11 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
         throw new QuotaExceededError(refused);
       }
       const expiresAt = epochSeconds(job.createdAt) + RETENTION_MS.metadata / 1000;
+      // A retry runs the same job again: it keeps (or takes) its own hold and never counts twice,
+      // but it is refused once a later job took the operation over.
+      const onceTaken = isOncePerUser(limits, job.operation)
+        ? onceItems(ownerId, job.operation, jobId, null, now)
+        : [];
       const event: OutboxEvent = {
         eventId: randomUUID(),
         type: 'job.retried',
@@ -507,11 +615,16 @@ export function createDynamoJobStore(db: Db, options: DynamoJobStoreOptions = {}
           ...takeQuota(db, ownerId, take),
           { Put: { TableName: tables.outbox, Item: eventItem(event, expiresAt) } },
           sweepPut(db, job, new Date(now.getTime() + DISPATCH_GRACE_MS)),
+          // Last, so the index-based failure checks above keep their positions.
+          ...onceTaken,
         ]);
         return load(ownerId, jobId, now);
       } catch (error) {
         if (failedAt(error, 0)) {
           continue;
+        }
+        if (onceTaken.length > 0 && failedAt(error, 6)) {
+          throw new OperationLimitError(job.operation);
         }
         const kind = quotaFailure(error, 1, take);
         if (kind) {
