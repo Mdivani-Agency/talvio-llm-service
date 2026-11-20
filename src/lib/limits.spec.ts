@@ -1,5 +1,6 @@
 import {
   LIMITS_VERSION,
+  isOncePerUser,
   PLAN_LIMITS,
   PLANNING_BUDGET_MICRO_USD,
   limitOverrideSchema,
@@ -15,9 +16,21 @@ describe('resolveLimits', () => {
       activeJobs: 2,
       dailySpendMicroUsd: 1_000_000,
       jobCapMicroUsd: 50_000,
+      oncePerUser: ['improve_profile'],
       jobBudgetMicroUsd: 50_000,
       version: LIMITS_VERSION,
     });
+  });
+
+  it('allows improve_profile once per user on the free plan, and nothing else', () => {
+    const free = resolveLimits('free');
+    expect(isOncePerUser(free, 'improve_profile')).toBe(true);
+    expect(isOncePerUser(free, 'improve_resume')).toBe(false);
+    expect(isOncePerUser({}, 'improve_profile')).toBe(false);
+  });
+
+  it('keeps the once-per-user rule under a daily-limit override', () => {
+    expect(resolveLimits('free', { jobsPerDay: 5 }).oncePerUser).toEqual(['improve_profile']);
   });
 
   it('keeps the per-job cap under the planning budget and the day within the spend limit', () => {

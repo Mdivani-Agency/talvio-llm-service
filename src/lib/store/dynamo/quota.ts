@@ -19,6 +19,11 @@ export const dayKey = (ownerId: string, day: string) => ({
 export const activeKey = (ownerId: string) => ({ pk: userKey(ownerId), sk: 'ACTIVE' });
 export const limitsKey = (ownerId: string) => ({ pk: userKey(ownerId), sk: 'LIMITS' });
 export const accountKey = (day: string) => ({ pk: 'ACCOUNT', sk: `DAY#${day}` });
+/** The holder of an operation the user may run once (`oncePerUser`). No TTL: it is kept for good. */
+export const onceKey = (ownerId: string, operation: string) => ({
+  pk: userKey(ownerId),
+  sk: `ONCE#${operation}`,
+});
 
 /*
  * Counter updates for the quota items. Admission and retry take capacity with a condition that

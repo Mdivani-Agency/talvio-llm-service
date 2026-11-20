@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 
 import type { CreateJobRequest, JobError } from '@talvio/llm-contracts';
 
-import { QuotaExceededError, type LimitOverride } from '../limits';
+import { OperationLimitError, QuotaExceededError, type LimitOverride } from '../limits';
 import type { Plan } from '../plans';
 import {
   IdempotencyConflictError,
@@ -45,6 +45,19 @@ const request = (key: string): CreateJobRequest =>
     clientRequestId: key,
     operation: 'parse_document',
     input: { kind: 'text', text: 'Nino Beridze\nBackend engineer', extraction: null },
+  }) as CreateJobRequest;
+
+/** An improve_profile request; the store does not look at the session it names. */
+const improveProfile = (key: string): CreateJobRequest =>
+  ({
+    schemaVersion: '1.0',
+    clientRequestId: key,
+    operation: 'improve_profile',
+    sessionId: '0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a',
+    contextRevisionId: '0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b',
+    parentJobId: null,
+    locale: 'en',
+    input: { sections: [], targetRole: null },
   }) as CreateJobRequest;
 
 const context = (): ContextInput => ({
@@ -403,6 +416,84 @@ export function describeStoreContract(name: string, make: MakeHarness) {
         expect(await pending()).toEqual([]);
         await h.store.outbox.markDispatched(event!, NOW);
         expect(await pending()).toEqual([]);
+      });
+    });
+
+    describe('once-per-user operations', () => {
+      beforeEach(async () => {
+        h = await make({});
+        // Wide daily limits, so only the once-per-user rule can refuse.
+        await h.setLimitOverride(alice, WIDE);
+        await h.setLimitOverride(bob, WIDE);
+      });
+
+      const admitProfile = (owner: string, key: string) =>
+        h.store.jobs.admit({
+          ownerId: owner,
+          plan: FREE,
+          pipelineReleaseId: 'v1',
+          idempotencyKey: key,
+          requestHash: `hash-${key}`,
+          request: improveProfile(key),
+          now: NOW,
+          deadlineAt: DEADLINE,
+        });
+
+      it('admits improve_profile once per user, and still replays the admitted request', async () => {
+        const first = await admitProfile(alice, 'once-00000001');
+        expect(first.replayed).toBe(false);
+
+        await expect(admitProfile(alice, 'once-00000002')).rejects.toBeInstanceOf(
+          OperationLimitError,
+        );
+        expect(await admitProfile(alice, 'once-00000001')).toEqual({
+          job: first.job,
+          replayed: true,
+          event: null,
+        });
+      });
+
+      it('leaves other users and other operations alone', async () => {
+        await admitProfile(alice, 'once-00000001');
+        expect((await admitProfile(bob, 'once-00000001')).replayed).toBe(false);
+        expect((await admit(alice, 'key-00000001')).replayed).toBe(false);
+      });
+
+      it('lets the holding job be retried without counting again', async () => {
+        const { job } = await admitProfile(alice, 'once-00000001');
+        await h.failJob(alice, job.jobId);
+        expect(await h.store.jobs.retry(alice, job.jobId, NOW)).toMatchObject({
+          status: 'queued',
+        });
+        await expect(admitProfile(alice, 'once-00000002')).rejects.toBeInstanceOf(
+          OperationLimitError,
+        );
+      });
+
+      it('gives the operation back when its job failed without spending anything', async () => {
+        const { job } = await admitProfile(alice, 'once-00000001');
+        await h.failJob(alice, job.jobId);
+        const next = await admitProfile(alice, 'once-00000002');
+        expect(next.replayed).toBe(false);
+        // The earlier job lost its hold, so it cannot run again beside the new one.
+        await expect(h.store.jobs.retry(alice, job.jobId, NOW)).rejects.toBeInstanceOf(
+          OperationLimitError,
+        );
+        await expect(admitProfile(alice, 'once-00000003')).rejects.toBeInstanceOf(
+          OperationLimitError,
+        );
+      });
+
+      it('keeps counting a cancelled or deleted job', async () => {
+        const { job } = await admitProfile(alice, 'once-00000001');
+        await h.store.jobs.cancel(alice, job.jobId, NOW);
+        await expect(admitProfile(alice, 'once-00000002')).rejects.toBeInstanceOf(
+          OperationLimitError,
+        );
+        await h.store.jobs.delete(alice, job.jobId);
+        await expect(admitProfile(alice, 'once-00000003')).rejects.toBeInstanceOf(
+          OperationLimitError,
+        );
       });
     });
 

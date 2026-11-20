@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { LIMITS } from '@talvio/llm-contracts';
+import { LIMITS, type Operation } from '@talvio/llm-contracts';
 
 import { PLANS, type Plan } from './plans';
 
@@ -11,7 +11,7 @@ import { PLANS, type Plan } from './plans';
  */
 
 /** Bump when a default below changes, so job records show which table admitted them. */
-export const LIMITS_VERSION = '2026-11-10.1';
+export const LIMITS_VERSION = '2026-11-20.1';
 
 /** Price table jobs are admitted and settled under (src/lib/model/pricing.ts). */
 export { PRICING_VERSION } from './model/pricing';
@@ -28,6 +28,12 @@ export type UserLimits = {
   dailySpendMicroUsd: number;
   /** Hard cap for one job; preflight uses the lower of this and the planning budget. */
   jobCapMicroUsd: number;
+  /**
+   * Operations a user may run once, ever (MDI-649). The first admitted job holds the operation
+   * for good in the quotas table (no TTL); a replay or a retry of that job does not count again,
+   * and only a job that failed without spending anything gives it back to a later admission.
+   */
+  oncePerUser?: readonly Operation[];
 };
 
 export const PLAN_LIMITS: Record<Plan, UserLimits> = {
@@ -36,6 +42,8 @@ export const PLAN_LIMITS: Record<Plan, UserLimits> = {
     activeJobs: LIMITS.activeJobsPerUser,
     dailySpendMicroUsd: 1_000_000,
     jobCapMicroUsd: 50_000,
+    // The free profile improvement after onboarding (talvio-web-app MDI-643).
+    oncePerUser: ['improve_profile'],
   },
 };
 
@@ -87,6 +95,18 @@ export class QuotaExceededError extends Error {
     this.name = 'QuotaExceededError';
   }
 }
+
+/** The user already ran an operation their plan allows once (`oncePerUser`). Not retryable. */
+export class OperationLimitError extends Error {
+  constructor(readonly operation: Operation) {
+    super(`Operation limit reached: ${operation}`);
+    this.name = 'OperationLimitError';
+  }
+}
+
+/** True when the limits allow `operation` once per user. */
+export const isOncePerUser = (limits: Pick<UserLimits, 'oncePerUser'>, operation: Operation) =>
+  limits.oncePerUser?.includes(operation) ?? false;
 
 /** Retention schedule (design §13). TTL drives it; reads also refuse items past their time. */
 export const RETENTION_MS = {

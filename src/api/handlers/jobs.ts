@@ -12,7 +12,7 @@ import {
 
 import { ApiError, notFound } from '@lib/errors';
 import { contentHash } from '@lib/hash';
-import { QuotaExceededError } from '@lib/limits';
+import { OperationLimitError, QuotaExceededError } from '@lib/limits';
 import type { Logger } from '@lib/log';
 import { callFits, maxUtf8Bytes, parseFits } from '@lib/model/preflight';
 import { ANALYZE_PACK, analysisMessage } from '@lib/prompts/analyze-resume';
@@ -249,8 +249,15 @@ async function takeRound(
   return { round, slots, replaces };
 }
 
-/** A refused limit becomes the contract's retryable quota error; anything else passes through. */
+/**
+ * A refused daily limit becomes the contract's retryable quota error, a used once-per-user
+ * operation its final operation_limit_reached; anything else passes through.
+ */
 function asQuotaError(error: unknown, logger: Logger): unknown {
+  if (error instanceof OperationLimitError) {
+    logger.metric({ QuotaRejected: 1 }, { kind: 'once_per_user', operation: error.operation });
+    return new ApiError('operation_limit_reached');
+  }
   if (!(error instanceof QuotaExceededError)) return error;
   logger.metric({ QuotaRejected: 1 }, { kind: error.kind });
   return new ApiError('quota_exceeded');

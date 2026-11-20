@@ -300,6 +300,7 @@ export function buildOpenApiDocument() {
               'budget_exceeded_preflight',
               'unsupported_language',
               'quota_exceeded',
+              'operation_limit_reached',
               'dependency_unavailable',
             ),
           },
@@ -347,7 +348,7 @@ export function buildOpenApiDocument() {
           summary: 'Retry a retryable failure within the original deadline and budget.',
           responses: {
             '202': { description: 'Requeued', content: json('JobAccepted') },
-            ...errorResponses(...common, 'invalid_retry'),
+            ...errorResponses(...common, 'invalid_retry', 'operation_limit_reached'),
           },
         },
       },

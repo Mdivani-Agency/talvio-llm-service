@@ -23,6 +23,8 @@ export const HTTP_ERROR_STATUS = {
   budget_exceeded_preflight: 422,
   unsupported_language: 422,
   quota_exceeded: 429,
+  /** An operation the plan allows once per user was already used (minor 1.x addition, MDI-649). */
+  operation_limit_reached: 429,
   dependency_unavailable: 503,
   internal_error: 500,
 } as const;
